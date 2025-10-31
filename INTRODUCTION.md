@@ -8,17 +8,17 @@
 > Explorando enfoques de computación cuántica para el milenario juego de Go utilizando recocido cuántico de D-Wave y computación fotónica de Xanadu.
 
 <p align="center">
-  <img src="data/assets/Interfaz_1.png" alt="Quantum Go Banner" width="800"/>
+  <img src="data/assets/quantum_map_M1.png" alt="Quantum Go Banner" width="400"/>
 </p>
 
 ---
 
 ## 🌟 ¿Qué es esto?
 
-Este proyecto investiga dos paradigmas de computación cuántica radicalmente diferentes para analizar el juego de Go:
+Este proyecto investiga dos paradigmas de computación cuántica radicalmente diferentes con el objetivo de analizar el juego de Go:
 
-- 🔷 D-Wave (Recocido Cuántico): mapea posiciones de Go a Hamiltonianos de Ising, encontrando jugadas óptimas mediante evolución adiabática y efecto túnel cuántico.
-- 🔶 Xanadu (Computación Fotónica): representa el tablero como grafos (Grafos de Destino Común, CFG), extrayendo características estratégicas mediante Gaussian Boson Sampling (GBS).
+- 🔷 D-Wave (Recocido Cuántico): La magia de los modelos de Ising.  Mapea posiciones de Go a Hamiltonianos de Ising que en su formulación QUBO permite la busqeuda de configuraciones de máxima o mínima energía óptimas mediante evolución adiabática.
+- 🔶 Xanadu (Computación Fotónica): Jugando con represantaciones del tablero como grafos (Grafos de Destino Común, CFG), podemos extraer características estratégicas que peuden ser usados en modelos de aprendizaje y clasificación.
 
 Ambos enfoques se complementan: D-Wave optimiza posiciones; Xanadu extrae características cuánticas para aprendizaje automático.
 
@@ -28,7 +28,7 @@ Ambos enfoques se complementan: D-Wave optimiza posiciones; Xanadu extrae caract
 
 ¿Qué significa usar una computadora cuántica para resolver un problema? La respuesta depende de qué fenómenos cuánticos están disponibles y cómo los explota la arquitectura del hardware. Este proyecto surgió de la oportunidad de investigar dos paradigmas radicalmente distintos de computación cuántica: D-Wave (quantum annealing) y Xanadu (photonic quantum computing), aplicados al modelado del juego de Go mediante Hamiltonianos de Ising y representaciones en grafos.
 
-D-Wave representa el enfoque de optimización cuántica adiabática. Su arquitectura física —una red de flux qubits superconductores con conectividad limitada (topologías Chimera, Pegasus o Zephyr)— implementa naturalmente el modelo de Ising. El flujo de trabajo consiste en: (1) formular el problema como Hamiltoniano de Ising, (2) transformarlo a QUBO (Quadratic Unconstrained Binary Optimization), (3) realizar embedding en la topología del chip, y (4) ejecutar evolución adiabática donde el quantum tunneling permite escapar de mínimos locales para encontrar configuraciones de baja energía. Este enfoque es ideal para el modelo Atomic-Go propuesto por Alvarado et al., donde las interacciones entre piedras adyacentes se mapean directamente a términos w_ij x_i x_j del Hamiltoniano de Ising, permitiendo optimizar posiciones del tablero mediante minimización de energía.
+D-Wave representa el enfoque de optimización cuántica adiabática. Su arquitectura física es una red de lo qeu llaman flux qubits superconductores con conectividad limitada (topologías Chimera, Pegasus o Zephyr), que implementam naturalmente el modelo de Ising. El flujo de trabajo consiste en: (1) formular el problema como Hamiltoniano de Ising, (2) transformarlo a QUBO (Quadratic Unconstrained Binary Optimization), (3) realizar embedding en la topología del chip, y (4) ejecutar evolución adiabática donde el quantum tunneling permite escapar de mínimos locales para encontrar configuraciones de baja energía. Este enfoque es ideal para el modelo Atomic-Go propuesto por Alvarado et al., donde las interacciones entre piedras adyacentes se mapean directamente a términos w_ij x_i x_j del Hamiltoniano de Ising, permitiendo optimizar posiciones del tablero mediante minimización de energía.
 
 Por otro lado, Xanadu explora la computación cuántica fotónica, utilizando estados squeezed de luz y redes de beam splitters para realizar Gaussian Boson Sampling (GBS). Aunque GBS ha mostrado ventaja cuántica en problemas de teoría de grafos —especialmente en la búsqueda de subgrafos densos y cliques máximos—, su aplicación a Go requiere una representación adecuada. El hallazgo clave de este proyecto es que el tablero de Go admite múltiples representaciones naturales como grafo: desde los Common Fate Graphs (CFG) de Graepel, que codifican grupos de piedras y sus libertades, hasta grafos de adyacencia ponderados que capturan territorio e influencia. Esta transformación abre la puerta a explotar las capacidades de Xanadu de dos formas complementarias:
 
