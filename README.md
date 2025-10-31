@@ -39,3 +39,4 @@ Este proyecto fue desarrollado con el apoyo del Consejo Nacional de Ciencia y Te
 - Autor: Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com
 - Colaborador (Matemático): Leonardo Jiménez — leonsinmiedo@gmail.com
 - Repositorio: https://github.com/ometitlan/Project-Quantum-Go
+
