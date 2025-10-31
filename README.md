@@ -1,5 +1,5 @@
-# Proyect Quantum Go
-Ising models for optimization problems in the game of Go
+# Proyecto Quantum Go
+Modelos de Ising para problemas de optimización en el juego de Go
 
 ## Agradecimientos
 
@@ -9,21 +9,33 @@ Este proyecto fue desarrollado con el apoyo del Consejo Nacional de Ciencia y Te
 **Director de Proyecto:** Dr. Boris Escalante Ramírez  
 **Período:** Diciembre 2022 - Noviembre 2024
 
-## Quickstart
+## Inicio rápido
 
-- Install in editable mode so notebooks can import the package without path hacks:
+- Instala en modo editable para que los notebooks importen el paquete sin hacks de ruta:
   - `pip install -e .`
 
-- Open the demo notebook:
-  - `notebooks/energy_tabs_demo.ipynb`
-  - It renders energy maps (Manhattan‑1/2) for quantum and classical models and checks parity.
+- Abre el notebook de demostración:
+  - `notebooks/go_sgf_analysis.ipynb`
+  - Muestra navegación, visualización y pestañas de energía (cuando están habilitadas).
 
-## Layout
+## Estructura
 
-- `src/` — Python package (import as `src.*`)
+- `src/` — Paquete Python (importa como `src.*`)
 - `notebooks/` — Jupyter notebooks
-- `data/`, `results/` — optional datasets and outputs
+- `docs/` — Guías y documentación en Markdown
+- `data/`, `results/` — Conjuntos de datos y salidas
 
-## Notes
+## Documentación
 
-- Dependencies are intentionally minimal in packaging; install required libs in your environment (numpy, matplotlib, bokeh, ipywidgets, pennylane, scipy, an SGF parser).
+- Introducción y teoría: `INTRODUCTION.md`
+- Guía de análisis interactivo: `docs/analisis_interactivo_partidas_go.md`
+
+## Notas
+
+- Los requisitos de empaquetado son mínimos; instala en tu entorno las bibliotecas necesarias (numpy, matplotlib, bokeh, ipywidgets, pennylane, scipy y un parser SGF).
+
+## Créditos
+
+- Autor: Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com
+- Colaborador (Matemático): Leonardo Jiménez — leonsinmiedo@gmail.com
+- Repositorio: https://github.com/ometitlan/Project-Quantum-Go
