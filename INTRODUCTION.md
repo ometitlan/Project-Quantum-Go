@@ -130,5 +130,5 @@ Código bajo MIT (ver `LICENSE`).
 ## 👥 Autores y Contacto
 
 - Autor: Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com
-- Colaborador (Matemático): Leonardo Jiménez — leonsinmiedo@gmail.com
+- Autor (Matemático): Leonardo Jiménez — leonsinmiedo@gmail.com
 - Repositorio: https://github.com/ometitlan/Project-Quantum-Go
