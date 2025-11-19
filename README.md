@@ -14,6 +14,20 @@
 
 ---
 
+Proyecto desarrollado con el apoyo del Consejo Nacional de Ciencia y Tecnología (CONACYT) mediante la beca de Estancias Posdoctorales por México 2022 (modalidad Académica - Inicial), CVU 469604.
+
+- **Institución:** Facultad de Ingeniería, UNAM  
+- **Director de Proyecto:** Dr. Boris Escalante Ramírez  
+- **Período:** Diciembre 2022 - Noviembre 2024
+
+**Autores**
+
+- Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com  
+- Leonardo Jiménez (Matemático) — leonsinmiedo@gmail.com  
+- Repositorio oficial: <https://github.com/ometitlan/Project-Quantum-Go>
+
+---
+
 ## Tabla de contenidos
 
 - [Visión general](#visión-general)
@@ -119,21 +133,6 @@ El repositorio combina motor clásico de reglas, visualizaciones interactivas, p
 - [ ] Integración completa de pestañas de energía en el navegador (WIP).
 - [ ] Experimentos con hardware D-Wave/Xanadu reales y pipelines híbridos ML.
 
----
-
-## Agradecimientos y créditos
-
-Proyecto desarrollado con el apoyo del Consejo Nacional de Ciencia y Tecnología (CONACYT) mediante la beca de Estancias Posdoctorales por México 2022 (modalidad Académica - Inicial), CVU 469604.
-
-- **Institución:** Facultad de Ingeniería, UNAM  
-- **Director de Proyecto:** Dr. Boris Escalante Ramírez  
-- **Período:** Diciembre 2022 - Noviembre 2024
-
-**Autores**
-
-- Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com  
-- Leonardo Jiménez (Matemático) — leonsinmiedo@gmail.com  
-- Repositorio oficial: <https://github.com/ometitlan/Project-Quantum-Go>
 
 ---
 
