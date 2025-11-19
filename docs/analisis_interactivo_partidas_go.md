@@ -88,6 +88,16 @@ Archivo generado: `../results/*.gif`
 ![GIF ejemplo](../data/assets/partida.gif)
 Animación de una partida completa
 
+### Celda 6: Mapas de energía cuántica
+
+Inserta los mapas de energía generados por los modelos de Ising (Manhattan‑1/2) en formato GIF para ilustrar rápidamente la distribución energética de una posición.
+
+- Permite documentar resultados directamente en el notebook.
+- Puede alternar entre kernels cuánticos y clásicos usando las utilidades de `src/go_energy_viz.py`.
+
+![Mapa de energía cuántica](../data/assets/quantum_map_M1.gif)
+Ejemplo de mapa M1 (cuántico) exportado desde `data/assets/quantum_map_M1.gif`.
+
 ### Módulos utilizados
 
 #### `go_game_engine.py` — Motor del juego
@@ -165,4 +175,3 @@ El código de este repositorio se distribuye bajo MIT (ver `LICENSE`).
 —
 
 Creado con cariño para la comunidad de Go
-
