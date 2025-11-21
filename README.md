@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img src="data/assets/logo_ing.jpg" alt="Facultad de Ingeniería UNAM" width="180"/>
 </p>
 
@@ -33,8 +33,8 @@
 
 Quantum Go explora dos paradigmas cuánticos complementarios para estudiar posiciones de Go:
 
-- **D-Wave / Recocido cuántico:** formulamos Hamiltonianos de Ising (Atomic-Go y variantes) que respondan a la dinámica del juego de Go y los llevamos a formulación QUBO para poder ejecutar embeddings en arquitecturas Pegasus/Zephyr y obtener configuraciones de mínima energía de manera eficiente. Resolvemos problemas de optimización que sugieren jugadas prometedoras basadas en la minimización de energía del sistema Ising.
-- **Xanadu / Computación fotónica:** convertimos el tablero en grafos donde los nodos son grupos de piedras conectadas y las aristas cuantifican relaciones estratégicas (libertades compartidas, presión táctica), transformando su matriz de adyacencia mediante descomposición de Takagi en parámetros de un interferómetro fotónico que, al propagar fotones a través de Xanadu Borealis, produce muestras que identifican subgrafos densos (formaciones sólidas, moyos, zonas de conflicto), De esta manera podemos extraer *features* cuánticos y alimentar kernels o modelos de aprendizaje automático en PennyLane.
+- **D-Wave / Recocido cuántico:** formulamos Hamiltonianos de Ising (Atomic-Go y variantes) y los llevamos a QUBO para ejecutar embeddings en arquitecturas Pegasus/Zephyr y obtener configuraciones de mínima energía.
+- **Xanadu / Computación fotónica:** convertimos el tablero en grafos (Common Fate Graphs y adyacencia ponderada) para realizar Gaussian Boson Sampling (GBS), extraer *features* cuánticos y alimentar kernels o modelos de aprendizaje automático en PennyLane.
 
 El repositorio combina motor clásico de reglas, visualizaciones interactivas, pipelines de exportación y prototipos de modelos cuánticos, pensado tanto para notebooks exploratorios como para integraciones futuras con hardware real.
 
@@ -87,11 +87,11 @@ El repositorio combina motor clásico de reglas, visualizaciones interactivas, p
 
 ## Componentes principales
 
-- **Motor de juego (`src/go_game_engine.py`):** clase `GoBoard` con reglas completas (Ko, suicidio, capturas, replay), estructuras `MoveInfo`/`GameInfo` y `SGFParser`.
-- **Utilidades SGF/tableros (`src/sgf_utils.py`, `src/board_utils.py`):** conversión entre matrices y tableros, extracción de metadatos y movimientos.
-- **Visualización (`src/go_visualization.py`):** `GoBoardVisualizer`, `GameNavigator` (tabs Libertades/Jugadas/Energía) y herramientas de exportación.
-- **Modelos de Ising (`src/go_isings_models.py`):** `IsingGoConfig`, `QuantumIsingModel`, `ClassicalIsingModel` y `EnergyMapGenerator` con kernels Manhattan configurables.
-- **Mapas energéticos (`src/go_energy_viz.py`, `src/go_export_utils.py`):** generación de pestañas Bokeh (M1/M2, cuántico/clásico) y exportación a PNG/HTML/GIF.
+- **Motor de juego (`src/go_game_engine.py`)**: clase `GoBoard` con reglas completas (Ko, suicidio, capturas, replay), estructuras `MoveInfo`/`GameInfo` y `SGFParser`.
+- **Utilidades SGF/tableros (`src/sgf_utils.py`, `src/board_utils.py`)**: conversión entre matrices y tableros, extracción de metadatos y movimientos.
+- **Visualización (`src/go_visualization.py`)**: `GoBoardVisualizer`, `GameNavigator` (tabs Libertades/Jugadas/Energía) y herramientas de exportación.
+- **Modelos de Ising (`src/go_isings_models.py`)**: `IsingGoConfig`, `QuantumIsingModel`, `ClassicalIsingModel` y `EnergyMapGenerator` con kernels Manhattan configurables.
+- **Mapas energéticos (`src/go_energy_viz.py`, `src/go_export_utils.py`)**: generación de pestañas Bokeh (M1/M2, cuántico/clásico) y exportación a PNG/HTML/GIF.
 
 ---
 
