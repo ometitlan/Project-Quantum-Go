@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Proyecto Quantum Go</h1>
-<p align="center">Modelos de Ising para optimización y análisis estratégico del juego de Go con recocido cuántico (D-Wave) y computación fotónica (Xanadu).</p>
+<p align="center">Estrategias de Go optimizadas con computación con recocido cuántico (D-Wave) y computación fotónica (Xanadu).</p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+"/></a>
@@ -45,7 +45,7 @@ Proyecto desarrollado con el apoyo del Consejo Nacional de Ciencia y Tecnología
 
 ## Visión general
 
-Quantum Go explora dos paradigmas cuánticos complementarios para estudiar posiciones de Go:
+El proyecto Quantum Go explora dos paradigmas cuánticos complementarios para resolver el juego de Go:
 
 - **D-Wave / Recocido cuántico:** formulamos Hamiltonianos de Ising (Atomic-Go y variantes) y los llevamos a QUBO para ejecutar embeddings en arquitecturas Pegasus/Zephyr y obtener configuraciones de mínima energía.
 - **Xanadu / Computación fotónica:** convertimos el tablero en grafos (Common Fate Graphs y adyacencia ponderada) para realizar Gaussian Boson Sampling (GBS), extraer *features* cuánticos y alimentar kernels o modelos de aprendizaje automático en PennyLane.

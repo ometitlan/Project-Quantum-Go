@@ -126,7 +126,7 @@ class QuantumIsingModel:
         - c_i es el coeficiente segÃºn distancia Manhattan
     """
     
-    def __init__(self, manhattan_distance: int = 1, config: Optional[IsingGoConfig] = None):
+    def __init__(self, manhattan_distance: int = 1, config: Optional[IsingGoConfig] = None, hamiltonian: Optional[qml.Hamiltonian] = None):
         """
         Inicializa el modelo cuÃ¡ntico.
         
@@ -146,8 +146,8 @@ class QuantumIsingModel:
         # Crear dispositivo cuntico
         self.dev = qml.device('default.qubit', wires=self.n_qubits)
         
-        # Construir Hamiltoniano
-        self.hamiltonian = self._build_hamiltonian()
+        # Construir Hamiltoniano (o usar uno provisto)
+        self.hamiltonian = hamiltonian if hamiltonian is not None else self._build_hamiltonian()
         
         # Crear circuito cuntico
         self.circuit = self._create_circuit()
@@ -244,6 +244,74 @@ class QuantumIsingModel:
         """
         return float(self.circuit(board, x, y))
     
+    def evolve_kernel(self, board: np.ndarray, x: int, y: int, t: float, *, steps: int = 2, return_state: bool = False) -> Dict:
+        """
+        Evoluciona el kernel local bajo e^{-iHt} y devuelve medidas base.
+
+        Args:
+            board: Tablero con 'B'/'W'/'.'
+            x, y: Centro del kernel
+            t: Tiempo de evolución
+            steps: Pasos de Trotter para ApproxTimeEvolution
+            return_state: Si True, incluye amplitudes complejas del estado
+
+        Returns:
+            dict con probs, expZ, expX, energy, t y position; opcionalmente state.
+        """
+        H = self.hamiltonian
+        n_qubits = self.n_qubits
+        dev = self.dev
+
+        @qml.qnode(dev)
+        def _evolution(board_in, cx, cy, time_param):
+            self._initialize_kernel_qubits(board_in, cx, cy)
+            qml.ApproxTimeEvolution(H, time=time_param, n=steps)
+            probs = qml.probs(wires=range(n_qubits))
+            expz = [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)]
+            expx = [qml.expval(qml.PauliX(i)) for i in range(n_qubits)]
+            energy_val = qml.expval(H)
+            return probs, expz, expx, energy_val
+
+        probs, expz, expx, energy_val = _evolution(board, x, y, t)
+        result = {
+            't': float(t),
+            'position': (int(x), int(y)),
+            'probs': np.array(probs),
+            'expZ': [float(v) for v in expz],
+            'expX': [float(v) for v in expx],
+            'energy': float(energy_val),
+        }
+
+        if return_state:
+            @qml.qnode(dev)
+            def _state_qnode(board_in, cx, cy, time_param):
+                self._initialize_kernel_qubits(board_in, cx, cy)
+                qml.ApproxTimeEvolution(H, time=time_param, n=steps)
+                return qml.state()
+            result['state'] = np.array(_state_qnode(board, x, y, t))
+
+        return result
+
+    def evolve_over_times(self, board: np.ndarray, x: int, y: int, times, *, steps: int = 2, return_state: bool = False):
+        """
+        Ejecuta evolve_kernel para una lista/array de tiempos.
+
+        Args:
+            board: Tablero con 'B'/'W'/'.'
+            x, y: Centro del kernel
+            times: Iterable de tiempos
+            steps: Pasos de Trotter
+            return_state: Si True, incluye estado por tiempo
+
+        Returns:
+            Lista de dicts (uno por tiempo) listos para DataFrame o visualización.
+        """
+        records = []
+        for t in times:
+            rec = self.evolve_kernel(board, x, y, float(t), steps=steps, return_state=return_state)
+            records.append(rec)
+        return records
+
     def get_hamiltonian_info(self) -> Dict:
         """Retorna informaciÃ³n del Hamiltoniano."""
         return {
