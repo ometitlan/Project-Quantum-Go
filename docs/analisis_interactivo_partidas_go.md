@@ -98,6 +98,28 @@ Inserta los mapas de energía generados por los modelos de Ising (Manhattan‑1/
 ![Mapa de energía cuántica](../data/assets/quantum_map_M1.gif)
 Ejemplo de mapa M1 (cuántico) exportado desde `data/assets/quantum_map_M1.gif`.
 
+### Celda 7: Evolución temporal del Hamiltoniano cuántico
+
+Visualizaciones para observar cómo evoluciona el kernel bajo \( e^{-iHt} \) en el tiempo:
+
+- Panel doble (dinámico + estado más probable):
+
+<p align="center">
+  <img src="../data/assets/kernel_wave_two_panels.gif" alt="Evolucion kernel: dinamica y estado mas probable" width="700"/>
+</p>
+
+- Probabilidades por estado (se etiquetan solo los 10 estados con probabilidad máxima):
+
+<p align="center">
+  <img src="../data/assets/probs_anim.gif" alt="Probabilidades por estado en el tiempo" width="700"/>
+</p>
+
+- Expectativas por qubit: \( \langle Z_i \rangle(t) \) y \( \langle X_i \rangle(t) \):
+
+<p align="center">
+  <img src="../data/assets/expZX_anim.gif" alt="Expectativas Z y X por qubit" width="700"/>
+</p>
+
 ### Módulos utilizados
 
 #### `go_game_engine.py` — Motor del juego

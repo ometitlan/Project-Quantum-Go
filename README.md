@@ -66,7 +66,12 @@ El repositorio combina motor clásico de reglas, visualizaciones interactivas, p
   <img src="data/assets/Interfaz_1.png" alt="Demo del navegador interactivo" width="600"/>
 </p>
 
-*La interfaz `GameNavigator` permite recorrer partidas SGF, mostrar libertades por grupo, números de jugada y pestañas de energía Manhattan-1/2 (cuántica y clásica).*
+<p align="center">
+  <img src="data/assets/partida.gif" alt="Partida animada" width="340"/>
+  <img src="data/assets/quantum_map_M1.gif" alt="Mapa de energía cuántico (Manhattan-1)" width="340"/>
+</p>
+
+*La interfaz `GameNavigator` permite recorrer partidas SGF, mostrar libertades por grupo, números de jugada y pestañas de energía Manhattan-1/2 (cuántica y clásica). Los GIF muestran, lado a lado, la partida y el mapa de energía cuántico correspondiente (Manhattan-1).*
 
 ---
 
