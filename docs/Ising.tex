@@ -1,0 +1,120 @@
+\documentclass[aps,prl,reprint]{revtex4-2}
+
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\begin{document}
+	
+	\title{Project Quantum Go: Ising Feature Maps and Photonic Graph Features}
+	
+	\author{M. A. Mercado Sanchez}
+	\affiliation{Universidad Nacional Autonoma de Mexico (UNAM)}
+	\author{L. Jimenez}
+	\affiliation{Universidad Nacional Autonoma de Mexico (UNAM)}
+	
+	\begin{abstract}
+		We study Go as a source of features for downstream learning (e.g., winner prediction) using two complementary pathways: (i) a symmetric classical Ising model translated to QUBO for adiabatic/annealing solvers, and (ii) photonic-inspired graph features (Gaussian Boson Sampling, GBS) over a chain-configuration graph (CFG) of the board. We clarify hardware constraints (annealers solve classical Ising/QUBO), present a symmetric reformulation with auxiliary bits to remove color bias, and outline how GBS-derived features capture higher-order group structure. Pending items are explicitly marked as planned work.
+	\end{abstract}
+
+	\maketitle
+	
+	\section{Objective and scope}
+	The goal is to derive interpretable energy and graph features of Go positions to feed learning models (e.g., predicting the winner or critical moves). We pursue two lines: a hardware-aligned Ising/QUBO formulation for annealers, and a photonic-style sampler on the CFG of the board to extract subgraph statistics. We did not execute on real D-Wave hardware (access limits), and quantum Hamiltonians with non-diagonal terms were only simulated (PennyLane).
+	
+	\section{Hardware constraints}
+	Adiabatic/quantum annealers natively solve classical Ising/QUBO (diagonal in Z). The initial quantum Hamiltonian with X/Z cross terms cannot be sent directly to an annealer; it was used only for simulation and intuition (time evolution). The practical path is a symmetric classical Ising that can be mapped to QUBO and embedded on annealer topology.
+	
+	\section{Classical Ising model for Go}
+	\subsection{Baseline (Atomic) and bias}
+	The Atomic model is quadratic and asymmetric: energy depends on color in a biased way and ignores rule constraints. It provides a coarse energy map but lacks symmetry and stability.
+	
+	\subsection{Symmetric model with auxiliaries}
+	We introduce auxiliary bits and penalties to enforce color symmetry and valid states (keep a stone of one color, handle empty). Target energy table (2-body) is enforced via:
+	\begin{itemize}
+		\item Split spins into positive/negative binaries \(p_i, n_i\) with \(p_i+n_i \le 1\).
+		\item Penalize invalid color/vacuum assignments; tune \(\mu\) for liberties; add constraints for ko/captures (Appendix).
+		\item Match a symmetric energy table across colors (planned: include full table).
+	\end{itemize}
+	
+	\subsection{From Ising to QUBO}
+	Using the p/n encoding, cubic terms (e.g., \(s_0 s_1^2\)) are flattened to quadratic with penalties. Linear biases \(b\) and couplers \(Q\) are produced; coefficients must be scaled to hardware ranges. Embedding onto Pegasus/Zephyr is pending once access is available.
+	
+	\subsection{Planned validation}
+	Correlation of energy maps with game outcome, stability of local minima, and comparison against the Atomic baseline will be added when annealing simulations complete.
+	
+	\section{Data and pipeline}
+	We process 6{,}000 professional SGF games via a rules engine (\texttt{src/go\_game\_engine.py}) enforcing ko, superko, captures, and suicide. Each move yields:
+	\begin{itemize}
+		\item Board states with liberties/captures.
+		\item Classical Ising energies (baseline and symmetric).
+		\item Exports to PNG/GIF through \texttt{go\_visualization.py}; interactive navigation is summarized in \texttt{docs/analisis\_interactivo\_partidas\_go.md}.
+	\end{itemize}
+	
+	\section{Photonic/GBS graph features}
+	We map the board to a chain-configuration graph (CFG): nodes are groups of stones, edges encode shared liberties/proximity. A GBS sampler over this graph provides:
+	\begin{itemize}
+		\item Frequent subgraphs (``super-groups'').
+		\item Cliques (largest solid groups).
+		\item Correlation matrix of nodes (which groups co-occur).
+		\item Sample entropy (ambiguity of the position).
+		\item Temporal similarity between successive positions.
+	\end{itemize}
+	Planned: quantitative tables for representative 9$\times$9 games (mean\_subgraph\_size, max\_clique\_size, node\_concentration, sample\_entropy, graph\_similarity).
+	
+	\section{Experiments and current status}
+	\subsection{Simulation (PennyLane)}
+	Time evolution under the quantum Hamiltonian (\(I\otimes Z + Z\otimes X + X\otimes Z\)) is simulated on small boards (5$\times$5) to visualize amplitude flows; this is illustrative only (not executable on annealers).
+	
+	\subsection{QUBO derivation}
+	Code in the notebook translates the symmetric 2-qubit energy table to QUBO via p/n encoding and validates against the target energies. Extension to full board with constraints is planned; coefficient scaling and embedding remain pending.
+	
+	\subsection{GBS features}
+	We extract CFG features on selected SGF games; example outputs include clique sizes, entropy trends, and correlation heatmaps. Aggregated metrics versus game outcome are pending.
+	
+	\section{Discussion}
+	The symmetric Ising removes color bias and is annealer-aligned, but depends on hyperparameters (\(J, h, \mu\), penalty weights) and embedding overhead. GBS features capture higher-order structure without explicit rule encoding but are hardware-specific and currently illustrative.
+	
+	\section{Future work}
+	Access an annealer to test the QUBO embedding; integrate energy/GBS features into a predictive model; add an energy tab to the interactive UI; benchmark against classical baselines (e.g., MCTS heuristics); study robustness to noisy SGF records.
+	
+	\section{Conclusions}
+	We aligned Go feature extraction with hardware-feasible Ising/QUBO formulations and complementary photonic graph sampling. Pending results (annealer runs and aggregated metrics) will quantify the utility of these features for prediction.
+	
+	\appendix
+	\section{Rule constraints formalization}\label{app:rules}
+	Constraints encode liberties, captures, and ko as penalties that raise the energy of illegal or unstable patterns. These terms adapt to board size and ko variant; full specification follows the project documentation.
+	
+	\section{Figures (planned and present)}
+	\begin{itemize}
+		\item Board vs energy map (present): Fig.~\ref{fig:go_and_energy}, images at \texttt{../data/assets/articulo/Tablero.jpg} and \texttt{../data/assets/articulo/Mapa\_energia.jpg}.
+		\item Target symmetric energy table (planned): 2-qubit table showing color symmetry after penalties.
+		\item Pipeline schematic (planned): board $\rightarrow$ symmetric Ising $\rightarrow$ QUBO $\rightarrow$ annealer/simulation.
+		\item CFG + GBS output (planned): example subgraph/clique highlight and correlation heatmap for a 9$\times$9 game.
+		\item Entropy/similarity curves over moves (planned): sample\_entropy and graph\_similarity vs move number.
+	\end{itemize}
+	
+	\begin{acknowledgments}
+		This work was supported in part by CONACYT. We thank the contributors to the Project Quantum Go repository for data curation and simulation support.
+	\end{acknowledgments}
+	
+	\begin{thebibliography}{99}
+		
+		\bibitem{alvarado2020}
+		M. Alvarado,
+		\textit{Atomic and Generative Go Models via Ising Interactions} (2020).
+		
+		\bibitem{lucas2014}
+		A. Lucas,
+		\textit{Ising formulations of many NP problems},
+		Frontiers in Physics \textbf{2}, 5 (2014).
+		
+		\bibitem{projectrepo}
+		Project Quantum Go repository,
+		\texttt{https://github.com/ometitlan/Project-Quantum-Go}
+		
+	\end{thebibliography}
+	
+\end{document}
