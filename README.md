@@ -17,6 +17,7 @@
 Proyecto desarrollado con el apoyo del Consejo Nacional de Ciencia y Tecnología (CONACYT) mediante la beca de Estancias Posdoctorales por México 2022 (modalidad Académica - Inicial), CVU 469604.
 
 - **Institución:** Facultad de Ingeniería, UNAM  
+- **LGAC:** Procesamiento Digital de Señales e Imágenes   
 - **Director de Proyecto:** Dr. Boris Escalante Ramírez  
 - **Período:** Diciembre 2022 - Noviembre 2024
 
@@ -25,6 +26,8 @@ Proyecto desarrollado con el apoyo del Consejo Nacional de Ciencia y Tecnología
 - Dr. Mario Alberto Mercado Sánchez — ometitlan@gmail.com  
 - Leonardo Jiménez (Matemático) — leonsinmiedo@gmail.com  
 - Repositorio oficial: <https://github.com/ometitlan/Project-Quantum-Go>
+
+This work was developed during a CONAHCYT postdoctoral fellowship at the Faculty of Engineering, UNAM, under the supervision of Dr. Boris Escalante Ramírez.
 
 ---
 
