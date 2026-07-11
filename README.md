@@ -254,6 +254,8 @@ $$M_{\phi}(i) = \sum_{R\in\mathcal{R}} \frac{1}{R}\, \frac{1}{|S_R(i)|} \sum_{j\
 
 donde $\phi$ es la función local usada ($E_{\text{cub}}$, $E_{\text{quad}}$, u otra). La normalización por $|S_R(i)|$ evita que una capa domine solo por tener más puntos (y maneja de forma natural bordes y esquinas, donde las capas son más pequeñas); la ponderación $1/R$ controla la importancia relativa de la distancia.
 
+**Nota de implementación:** el cálculo está vectorizado con convoluciones de anillos Manhattan, así que el radio $R$ es arbitrario — un tablero 19×19 con $R=9$ se calcula en ~3 ms, lo que hace viables los experimentos por lotes con radios grandes. El backend cuántico heredado queda acotado a $R\leq 2$: su kernel usa $1+2R(R+1)$ qubits y la simulación exacta crece como $2^n$.
+
 ---
 
 ## Lectura sobre tablero actual y jugada hipotética
@@ -414,6 +416,7 @@ ui
 - [x] Pesos y normalización alineados con este documento: $w_R = 1/R$ con normalización por capa.
 - [x] Mapa cuadrático $-J s_0 s_1$ implementado como función local seleccionable (`quadratic`).
 - [x] Lectura de jugada hipotética ($\tilde s_i = \tau$) integrada en notebooks e interfaz: sufijo `-hipB` / `-hipW` en las pestañas del navegador (p. ej. `m1-cubic-hipB`) y en los métodos de mapa (`cubic-hipB`).
+- [x] Radio Manhattan generalizado y vectorizado: `PositionalMapModel.compute_map` calcula el tablero completo por convoluciones de anillos para cualquier $R$ (equivalencia exacta con el cálculo punto a punto, verificada; 19×19 con $R=9$ en ~3 ms, ~40× más rápido que el bucle).
 - [x] Parte cuántica reestructurada: `Hamiltonian_and_Ising_models.ipynb` documenta la derivación, demuestra el límite clásico (factorización en estados producto, verificada a precisión de máquina) e implementa el **mapa dinámico de entrelazamiento** bajo $e^{-iHt}$ (`QuantumDynamicMapModel`: entropía de von Neumann del qubit central, correlaciones conectadas; Trotter de orden 2). En el tablero de prueba, el mapa dinámico correlaciona débilmente con los mapas clásicos (r ≈ 0.13–0.20): captura información distinta.
 - [ ] Batería de experimentos iniciales sobre partidas SGF y comparación con jugadas reales — incluye validar si las jugadas reales caen en zonas de alta entropía del mapa dinámico.
 - [ ] Mapa dinámico M2 (kernel de 13 qubits) y estadísticos alternativos (`entropy_max`, `conn_mean`, `z_mean`).

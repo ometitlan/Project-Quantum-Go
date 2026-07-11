@@ -15,6 +15,7 @@ import numpy as np
 from typing import Dict, Tuple, Optional, Union
 import pennylane as qml
 from scipy.optimize import minimize
+from scipy.signal import convolve2d
 
 # ============================================================================
 # CLASE 1: CONFIGURACIN FSICA
@@ -40,12 +41,21 @@ class IsingGoConfig:
     # '.'  |+ (superposicin)
     
     # Coeficientes de interaccion por distancia Manhattan: w_R = 1/R.
+    # El dict permite overrides puntuales; para cualquier otra distancia se
+    # usa la formula general 1/R (ver interaction_coeff), sin tope de radio.
     INTERACTION_COEFFS = {
         1: 1.0,     # Vecinos inmediatos: peso completo
         2: 0.5,
         3: 1.0 / 3.0,
         4: 0.25,
     }
+
+    @classmethod
+    def interaction_coeff(cls, dist: int) -> float:
+        """Peso w_R = 1/R para cualquier distancia Manhattan >= 1."""
+        if dist < 1:
+            return 0.0
+        return cls.INTERACTION_COEFFS.get(dist, 1.0 / float(dist))
     
     @staticmethod
     def get_kernel_positions(manhattan_distance: int = 1) -> Dict[int, Tuple[int, int]]:
@@ -100,7 +110,7 @@ class IsingGoConfig:
                 coefficients[idx] = 0.0  # Centro no tiene coeficiente (no interactÃºa consigo mismo)
             else:
                 dist = cls.manhattan_distance((0, 0), pos)
-                coefficients[idx] = cls.INTERACTION_COEFFS.get(dist, 0.0)
+                coefficients[idx] = cls.interaction_coeff(dist)
         
         return {
             'positions': positions,
@@ -219,6 +229,24 @@ def spin_from_stone(stone) -> int:
     raise ValueError(f"Valor de tablero no soportado: {stone!r}")
 
 
+def board_to_spins(board: np.ndarray) -> np.ndarray:
+    """Tablero de simbolos -> matriz de spins float (B=-1, W=+1, vacio=0)."""
+    b = np.asarray(board, dtype=str)
+    s = np.zeros(b.shape, dtype=float)
+    s[b == 'W'] = 1.0
+    s[b == 'B'] = -1.0
+    return s
+
+
+def manhattan_ring_kernel(dist: int) -> np.ndarray:
+    """Anillo Manhattan de radio `dist` como kernel (2d+1)x(2d+1) de 0/1."""
+    d = int(dist)
+    size = 2 * d + 1
+    dx = np.abs(np.arange(size) - d)
+    K = (dx[:, None] + dx[None, :] == d).astype(float)
+    return K
+
+
 def spin_from_color(color) -> int:
     """Map a color token to a spin value for hypothetical moves."""
     if color is None:
@@ -325,6 +353,46 @@ class PositionalMapModel:
 
         return float(total)
 
+    def compute_map(self, board: np.ndarray) -> np.ndarray:
+        """Mapa completo vectorizado con convoluciones de anillos Manhattan.
+
+        Equivalente exacto a llamar compute_energy en cada punto, pero en
+        O(capas x convolucion) para todo el tablero, lo que hace viables
+        radios grandes (R = 9 o mas) y experimentos por lotes.
+
+        Descomposicion usada (por capa R, con K_R el anillo y * convolucion):
+        - cubico:    sum_j E = c_R*s~ + 2(K_R*s) - s~(K_R*s^2) - s~^2(K_R*s)
+        - cuadratico: sum_j E = -J * s~ * (K_R*s)
+        donde s~ es el spin del centro (con lectura hipotetica si aplica) y
+        c_R el numero de vecinos validos (convolucion de un tablero de unos).
+        """
+        s = board_to_spins(board)
+        s2 = s * s
+        ones = np.ones_like(s)
+        if self.hypothetical_spin is not None:
+            center = np.where(np.asarray(board, dtype=str) == '.',
+                              float(self.hypothetical_spin), s)
+        else:
+            center = s
+
+        total = np.zeros_like(s)
+        for dist in self.layers:
+            K = manhattan_ring_kernel(dist)
+            conv_s = convolve2d(s, K, mode='same', boundary='fill', fillvalue=0.0)
+            count = convolve2d(ones, K, mode='same', boundary='fill', fillvalue=0.0)
+            if self.method == 'cubic':
+                conv_s2 = convolve2d(s2, K, mode='same', boundary='fill', fillvalue=0.0)
+                layer = (count * center + 2.0 * conv_s
+                         - center * conv_s2 - (center ** 2) * conv_s)
+            else:  # quadratic
+                layer = -self.J * center * conv_s
+            if self.normalize_by_layer:
+                layer = np.divide(layer, count,
+                                  out=np.zeros_like(layer), where=count > 0)
+            total += self.distance_weight(dist) * layer
+
+        return total
+
 
 class CubicSpinMapModel(PositionalMapModel):
     """Mapa cúbico spin-1 para influencia/ventaja local."""
@@ -372,22 +440,38 @@ class QuantumIsingModel:
         - c_i es el coeficiente segÃºn distancia Manhattan
     """
     
-    def __init__(self, manhattan_distance: int = 1, config: Optional[IsingGoConfig] = None, hamiltonian: Optional[qml.Hamiltonian] = None):
+    def __init__(self, manhattan_distance: int = 1, config: Optional[IsingGoConfig] = None, hamiltonian: Optional[qml.Hamiltonian] = None, allow_large_kernel: bool = False):
         """
         Inicializa el modelo cuÃ¡ntico.
-        
+
         Args:
-            manhattan_distance: Radio del kernel (1 o 2)
+            manhattan_distance: Radio del kernel (1 o 2; el kernel usa
+                1 + 2R(R+1) qubits, asi que R=3 ya son 25 qubits)
             config: ConfiguraciÃ³n personalizada (opcional)
+            allow_large_kernel: permite kernels de mas de 13 qubits bajo tu
+                propio riesgo (el statevector crece como 2^n)
         """
         self.config = config or IsingGoConfig()
         self.manhattan_distance = manhattan_distance
-        
+
         # Obtener info del kernel
         kernel_info = self.config.get_kernel_info(manhattan_distance)
         self.positions = kernel_info['positions']
         self.n_qubits = kernel_info['n_qubits']
         self.coefficients = kernel_info['coefficients']
+
+        # Limite fisico de la simulacion exacta: el kernel de radio R usa
+        # 1 + 2R(R+1) qubits (R=1: 5, R=2: 13, R=3: 25, R=4: 41). Mas alla
+        # de 13 el statevector (2^n amplitudes) deja de ser practico.
+        if self.n_qubits > 13 and not allow_large_kernel:
+            raise ValueError(
+                f"Kernel Manhattan-{manhattan_distance} = {self.n_qubits} qubits: "
+                f"la simulacion exacta requiere 2^{self.n_qubits} amplitudes. "
+                "El backend cuantico esta acotado a R<=2 (13 qubits); para "
+                "radios grandes usa los mapas clasicos (PositionalMapModel, "
+                "que generaliza a cualquier R), o pasa allow_large_kernel=True "
+                "bajo tu propio riesgo."
+            )
         
         # Crear dispositivo cuntico
         self.dev = qml.device('default.qubit', wires=self.n_qubits)
@@ -754,7 +838,7 @@ class ClassicalIsingModel:
             
             # Coeficiente segn distancia
             dist = self.config.manhattan_distance((0, 0), (dx, dy))
-            coeff = self.config.INTERACTION_COEFFS.get(dist, 0.0)
+            coeff = self.config.interaction_coeff(dist)
             
             # Energa de esta interaccin
             energy = self.compute_energy_single_interaction(center_spin, neighbor_spin)
@@ -853,19 +937,25 @@ class EnergyMapGenerator:
     def generate_energy_map(self, board: np.ndarray) -> np.ndarray:
         """
         Genera mapa de energÃ­a completo para un tablero.
-        
+
+        Si el modelo expone compute_map (vectorizado), se usa esa via;
+        de lo contrario se itera compute_energy punto por punto.
+
         Args:
             board: Tablero de Go (array 2D)
             
         Returns:
             energy_map: Array 2D con energÃ­as
         """
+        if hasattr(self.model, 'compute_map'):
+            return np.asarray(self.model.compute_map(board), dtype=float)
+
         energy_map = np.zeros_like(board, dtype=float)
-        
+
         for i in range(board.shape[0]):
             for j in range(board.shape[1]):
                 energy_map[i, j] = self.model.compute_energy(board, i, j)
-        
+
         return energy_map
     
     def compute_statistics(self, board: np.ndarray, energy_map: np.ndarray) -> Dict:
