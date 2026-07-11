@@ -59,6 +59,7 @@ Ambos mapas se calculan principalmente para Manhattan-1 y Manhattan-2, ponderand
 - [Comparación visual de los dos modelos](#comparación-visual-de-los-dos-modelos)
 - [Capas Manhattan](#capas-manhattan)
 - [Lectura sobre tablero actual y jugada hipotética](#lectura-sobre-tablero-actual-y-jugada-hipotética)
+- [Galería: mapas sobre una partida profesional](#galería-mapas-sobre-una-partida-profesional)
 - [Comparación conceptual de los mapas](#comparación-conceptual-de-los-mapas)
 - [Forma general modificable](#forma-general-modificable)
 - [Experimentos iniciales](#experimentos-iniciales)
@@ -275,6 +276,24 @@ Se evalúa qué pasaría si el jugador colocara una piedra de color $\tau$ ($-1$
 
 ---
 
+## Galería: mapas sobre una partida profesional
+
+Todo lo anterior, visto sobre una posición real — la posición final de **Peng Liyao vs Xia Chenkun (2021, 175 jugadas)**, incluida en `data/sgf partidas/`. Es lo que muestran las pestañas del navegador interactivo, sin necesidad de montar el entorno:
+
+<p align="center">
+  <img src="data/assets/readme_galeria_mapas.png" alt="Galería de mapas posicionales sobre una partida profesional" width="960"/>
+</p>
+
+Cómo leer cada panel:
+
+- **Cúbico M1 → M2 → R=9** (fila superior): la misma función de influencia con radios crecientes. M1 lee el contacto inmediato; R=9 revela la **división territorial global** del tablero — las regiones oscuras y ámbar son las esferas de influencia de negro y blanco. Gracias a la vectorización por convoluciones, el panel R=9 cuesta ~3 ms.
+- **Cuadrático M2**: solo estructura — cadenas azules donde hay conexión propia, focos rojos en los frentes de contacto entre colores. Los vacíos quedan sin señal, como predice la teoría.
+- **Hipotéticos Negro / Blanco M1**: cada punto vacío evaluado como si ese color jugara ahí (libertad local + balance vecino). Nótese que son casi el negativo uno del otro, con las diferencias concentradas donde hay piedras cerca — exactamente el término $\tau(1-s_1^2)$ actuando.
+
+La galería se regenera con `python tools/generar_galeria_readme.py` (mismo criterio que las láminas: los valores salen del modelo, no están dibujados a mano).
+
+---
+
 ## Comparación conceptual de los mapas
 
 | Criterio | Mapa cúbico | Mapa cuadrático $s_0s_1$ |
@@ -340,7 +359,17 @@ El proyecto nació explorando dos paradigmas de computación cuántica aplicados
 1. El "Hamiltoniano cuántico" evaluado sobre estados producto factoriza en expectativas por sitio, de modo que el mapa resultante es exactamente la función clásica spin-1 que hoy es el objeto central del proyecto. El formalismo cuántico funcionó como *dispositivo de derivación* del modelo cúbico.
 2. La minimización global de una energía sin restricciones no responde a la dinámica adversarial y secuencial del juego; los mapas posicionales sí tienen una interpretación directa y verificable.
 
-El cuaderno `notebooks/Hamiltonian_and_Ising_models.ipynb` documenta esta línea con su estatus actualizado: la derivación del modelo cúbico, la demostración del límite clásico, la **dinámica de entrelazamiento** bajo $e^{-iHt}$ (el único contenido genuinamente cuántico del proyecto, resumido en el mapa dinámico de `QuantumDynamicMapModel`) y la cuadratización exacta a QUBO. `notebooks/photonic_gbs_go.ipynb` conserva la exploración fotónica (GBS, hafnianos y subgrafos densos); la correlación de subgrafos GBS con evaluaciones de motores de Go sigue siendo una línea futura de interés.
+El cuaderno `notebooks/Hamiltonian_and_Ising_models.ipynb` documenta esta línea con su estatus actualizado: la derivación del modelo cúbico, la demostración del límite clásico, la **dinámica de entrelazamiento** bajo $e^{-iHt}$ (el único contenido genuinamente cuántico del proyecto) y la cuadratización exacta a QUBO. `notebooks/photonic_gbs_go.ipynb` conserva la exploración fotónica (GBS, hafnianos y subgrafos densos); la correlación de subgrafos GBS con evaluaciones de motores de Go sigue siendo una línea futura de interés.
+
+### El mapa dinámico de entrelazamiento
+
+Los términos $Z\otimes X$ y $X\otimes Z$ del Hamiltoniano no conmutan, así que la evolución $e^{-iHt}$ **entrelaza** el kernel: aparecen cantidades que ningún mapa clásico local puede reproducir — la entropía de von Neumann del qubit central $S(\rho_0)(t)$ y las correlaciones conectadas $\langle Z_0Z_j\rangle - \langle Z_0\rangle\langle Z_j\rangle$. `QuantumDynamicMapModel` resume esa dinámica en un escalar por punto (por defecto, la entropía media $\bar S$ sobre un ciclo):
+
+<p align="center">
+  <img src="data/assets/readme_mapa_dinamico.png" alt="Mapa dinámico de entrelazamiento sobre una ventana de la partida" width="960"/>
+</p>
+
+Sobre esta ventana 9×9 de la misma partida, el mapa dinámico correlaciona $r \approx 0$ con el mapa clásico: **mide información distinta**. La hipótesis falsable pendiente es si esa información tiene contenido de Go — si las jugadas reales de partidas profesionales caen en zonas de alta $\bar S$. El kernel cuántico está acotado a $R\leq 2$ (13 qubits; la simulación exacta crece como $2^n$).
 
 ---
 
@@ -403,6 +432,23 @@ moves, info = parser.parse_file("data/sgf partidas/archivo.sgf")
 navigator = GameNavigator(moves)
 ui = navigator.create_view(figsize=(6, 6), include_energy_tabs=True, energy_backend='bokeh')
 ui
+```
+
+O directamente la API de mapas, sin interfaz (vectorizada, cualquier radio):
+
+```python
+import numpy as np
+from src.go_isings_models import PositionalMapModel, QuantumDynamicMapModel, EnergyMapGenerator
+
+board = np.full((19, 19), '.', dtype=str)   # matriz de 'B' / 'W' / '.'
+
+influencia   = PositionalMapModel('cubic', manhattan_distance=9).compute_map(board)
+conexion     = PositionalMapModel('quadratic', manhattan_distance=2).compute_map(board)
+jugada_negra = PositionalMapModel('cubic', manhattan_distance=1,
+                                  hypothetical_color='B').compute_map(board)
+
+# línea cuántica (R <= 2): entropía de entrelazamiento bajo e^{-iHt}
+dinamico = EnergyMapGenerator(QuantumDynamicMapModel(manhattan_distance=1)).generate_energy_map(board)
 ```
 
 ---
