@@ -1,8 +1,7 @@
 """
 go_energy_viz.py
 ================
-VisualizaciÃ³n Bokeh de mapas de energÃ­a (Manhattan-1/2) para modelos
-cuÃ¡ntico y clÃ¡sico. Devuelve Tabs con cuatro paneles: M1-Q, M1-C, M2-Q, M2-C.
+Visualizacion Bokeh de mapas posicionales spin-1 (Manhattan-1/2).
 
 Uso bÃ¡sico (en notebook):
     from src.sgf_utils import extract_moves_and_info, replay_game, board_to_numpy
@@ -15,7 +14,7 @@ Uso bÃ¡sico (en notebook):
     show(tabs)
 """
 
-from typing import Tuple
+from typing import Iterable, Tuple
 
 import numpy as np
 from bokeh.layouts import column
@@ -66,14 +65,82 @@ def _two_color_diverging_palette(n: int = 256,
     neutral_to_pos = _gradient(neutral_color, pos_color, right)
     return neg_to_neutral + neutral_to_pos
 
-from .go_isings_models import QuantumIsingModel, ClassicalIsingModel, EnergyMapGenerator
+from .go_isings_models import (
+    QuantumIsingModel,
+    ClassicalIsingModel,
+    EnergyMapGenerator,
+    create_positional_map_model,
+    map_method_label,
+    normalize_map_method,
+    parse_map_method,
+    split_map_method,
+)
 
 
-def _compute_energy_map(board: np.ndarray, manhattan_distance: int, method: str) -> np.ndarray:
-    if method == 'quantum':
-        model = QuantumIsingModel(manhattan_distance=manhattan_distance)
+DEFAULT_MAP_TABS = ('m1-cubic', 'm2-cubic', 'm1-quadratic', 'm2-quadratic')
+
+
+def parse_map_tab_key(key: str):
+    """Parse tab keys like m1-cubic, m2-quadratic, m1-cubic-hipB, m2-quadratic-raw.
+
+    Sufijos combinables tras el método:
+    - '-hipB'/'-hipW': lectura de jugada hipotética en los vacíos;
+    - '-raw': sin promedio por capa (suma acumulada).
+    Los sufijos se conservan dentro del campo `method` como clave compuesta
+    ('cubic-hipb', 'quadratic-raw') para no romper a los consumidores de 4-tuplas.
+    """
+    raw = str(key).strip().lower().replace('_', '-')
+    if not raw.startswith('m') or '-' not in raw:
+        raise ValueError(f"Pestaña de mapa inválida: {key!r}")
+    dist_part, method_part = raw.split('-', 1)
+    try:
+        dist = int(dist_part[1:])
+    except ValueError as exc:
+        raise ValueError(f"Distancia Manhattan inválida en {key!r}") from exc
+    method, method_kwargs = parse_map_method(method_part)
+    hyp_color = method_kwargs.get('hypothetical_color')
+    if hyp_color is not None:
+        method = f"{method}-hip{hyp_color.lower()}"
+    if method_kwargs.get('normalize_by_layer') is False:
+        method = f"{method}-raw"
+    canonical_key = f"m{dist}-{method}"
+    title = f"M{dist} | {map_method_label(method)}"
+    return canonical_key, dist, method, title
+
+
+def selected_map_tab_specs(keys: Iterable[str] | None = None):
+    """Return unique (key, distance, method, title) specs for requested tabs."""
+    requested = DEFAULT_MAP_TABS if keys is None else tuple(keys)
+    specs = []
+    seen = set()
+    for key in requested:
+        spec = parse_map_tab_key(key)
+        if spec[0] in seen:
+            continue
+        seen.add(spec[0])
+        specs.append(spec)
+    return specs
+
+
+def _compute_energy_map(board: np.ndarray, manhattan_distance: int, method: str, **map_kwargs) -> np.ndarray:
+    canonical, method_kwargs = parse_map_method(method)
+    if canonical in {'quantum', 'legacy-classical'}:
+        if method_kwargs or map_kwargs.get('hypothetical_color'):
+            raise ValueError(
+                f"El backend {canonical!r} no soporta sufijos de mapa (hipotético/raw)"
+            )
+        if canonical == 'quantum':
+            model = QuantumIsingModel(manhattan_distance=manhattan_distance)
+        else:
+            model = ClassicalIsingModel(manhattan_distance=manhattan_distance)
     else:
-        model = ClassicalIsingModel(manhattan_distance=manhattan_distance)
+        for key, value in method_kwargs.items():
+            map_kwargs.setdefault(key, value)
+        model = create_positional_map_model(
+            canonical,
+            manhattan_distance=manhattan_distance,
+            **map_kwargs,
+        )
     gen = EnergyMapGenerator(model)
     return gen.generate_energy_map(board)
 
@@ -118,7 +185,7 @@ def _figure_for_energy(
         title=title,
         x_range=(-0.5, w - 0.5), y_range=(h - 0.5, -0.5),
         width=600, height=600, tools="hover,pan,wheel_zoom,reset,save",
-        tooltips=[("Pos", "(@x, @y)"), ("Energy", "@energy{0.00}")]
+        tooltips=[("Pos", "(@x, @y)"), ("Valor", "@energy{0.00}")]
     )
     p.background_fill_color = board_color
     p.grid.grid_line_color = None
@@ -137,7 +204,7 @@ def _figure_for_energy(
     p.line(x=[-0.5, w - 0.5], y=[h - 0.5, h - 0.5], line_width=2, color='black')
     p.line(x=[w - 0.5, w - 0.5], y=[-0.5, h - 0.5], line_width=2, color='black')
 
-    # Capa de energa
+    # Capa del mapa
     if overlay == 'heatmap':
         xs = np.tile(np.arange(w), h)
         ys = np.repeat(np.arange(h), w)
@@ -149,8 +216,8 @@ def _figure_for_energy(
         xs, ys, vals = [], [], []
         for i in range(h):
             for j in range(w):
-                # Mostrar aura en cualquier interseccin con energa significativa,
-                # incluyendo espacios vacos bajo influencia.
+                # Mostrar aura en cualquier interseccion con valor significativo,
+                # incluyendo espacios vacios bajo influencia.
                 val = float(energy_map[i, j])
                 if abs(val) > zero_threshold:
                     xs.append(j); ys.append(i); vals.append(val)
@@ -188,28 +255,26 @@ def _figure_for_energy(
 
     color_bar = ColorBar(color_mapper=mapper, ticker=BasicTicker(desired_num_ticks=10),
                          formatter=PrintfTickFormatter(format="%.2f"), location=(0, 0),
-                         title="Energy")
+                         title="Mapa")
     p.add_layout(color_bar, 'right')
     return p
 
 
 def _panel(board: np.ndarray, manhattan_distance: int, method: str) -> TabPanel:
     emap = _compute_energy_map(board, manhattan_distance, method)
-    title = f"Manhattan-{manhattan_distance} | {method.title()}"
+    title = f"Manhattan-{manhattan_distance} | {map_method_label(method)}"
     fig = _figure_for_energy(board, emap, title, overlay='aura')
     lay = column(fig)
     return TabPanel(child=lay, title=title)
 
 
-def build_energy_tabs(board: np.ndarray) -> Tabs:
-    """Construye Tabs con (M1, M2) Ã— (quantum, classical) y 'Board Only'."""
+def build_energy_tabs(board: np.ndarray, energy_tabs: Iterable[str] | None = None) -> Tabs:
+    """Construye Tabs con mapas solicitados y un panel 'Board Only'."""
     panels = [
-        _panel(board, 1, 'quantum'),
-        _panel(board, 1, 'classical'),
-        _panel(board, 2, 'quantum'),
-        _panel(board, 2, 'classical'),
+        _panel(board, dist, method)
+        for _, dist, method, _ in selected_map_tab_specs(energy_tabs)
     ]
-    # Tab extra solo con tablero (sin mapa de energa)
+    # Tab extra solo con tablero.
     fig_title = "Board Only"
     dummy = np.zeros_like(board, dtype=float)
     fig_only = _figure_for_energy(board, dummy, fig_title)

@@ -11,9 +11,9 @@ CaracterÃ­sticas:
 - GeneraciÃ³n de mapas de energÃ­a
 """
 
-import pennylane as qml
 import numpy as np
 from typing import Dict, Tuple, Optional, Union
+import pennylane as qml
 from scipy.optimize import minimize
 
 # ============================================================================
@@ -39,12 +39,12 @@ class IsingGoConfig:
     # 'W'  |0 (eigenestado de Z con valor +1)
     # '.'  |+ (superposicin)
     
-    # Coeficientes de interaccin (ley 1/d para distancias > 1)
+    # Coeficientes de interaccion por distancia Manhattan: w_R = 1/R.
     INTERACTION_COEFFS = {
         1: 1.0,     # Vecinos inmediatos: peso completo
-        2: 0.25,    # Manhattan=2: 1/4 del peso
-        3: 0.111,   # Manhattan=3: 1/9 del peso
-        4: 0.0625   # Manhattan=4: 1/16 del peso
+        2: 0.5,
+        3: 1.0 / 3.0,
+        4: 0.25,
     }
     
     @staticmethod
@@ -108,6 +108,252 @@ class IsingGoConfig:
             'coefficients': coefficients,
             'manhattan_distance': manhattan_distance
         }
+
+
+# ============================================================================
+# MAPAS POSICIONALES SPIN-1
+# ============================================================================
+
+MAP_METHOD_ALIASES = {
+    'cubic': 'cubic',
+    'cubico': 'cubic',
+    'cúbico': 'cubic',
+    'spin-cubic': 'cubic',
+    'spin_cubic': 'cubic',
+    'classical': 'cubic',
+    'quadratic': 'quadratic',
+    'cuadratico': 'quadratic',
+    'cuadrático': 'quadratic',
+    'quad': 'quadratic',
+    'atomic': 'quadratic',
+    'atomic-go': 'quadratic',
+    'atomic_go': 'quadratic',
+    'quantum': 'quantum',
+    'legacy-quantum': 'quantum',
+    'legacy_quantum': 'quantum',
+    'legacy-classical': 'legacy-classical',
+    'legacy_classical': 'legacy-classical',
+}
+
+MAP_METHOD_LABELS = {
+    'cubic': 'Cúbico',
+    'quadratic': 'Cuadrático',
+    'quantum': 'Cuántico heredado',
+    'legacy-classical': 'Clásico heredado',
+}
+
+
+def normalize_map_method(method: str) -> str:
+    """Return the canonical map method name used by the current API."""
+    key = str(method).strip().lower()
+    try:
+        return MAP_METHOD_ALIASES[key]
+    except KeyError as exc:
+        valid = ', '.join(sorted(MAP_METHOD_ALIASES))
+        raise ValueError(f"Metodo de mapa no soportado: {method!r}. Opciones: {valid}") from exc
+
+
+# Sufijos para lectura de jugada hipotetica en claves compuestas,
+# p. ej. 'cubic-hipB' o 'quadratic-hip-blanco'.
+HYP_METHOD_SUFFIXES = {
+    'hipb': 'B', 'hip-b': 'B', 'hipnegro': 'B', 'hip-negro': 'B',
+    'hipw': 'W', 'hip-w': 'W', 'hipblanco': 'W', 'hip-blanco': 'W',
+}
+
+
+def parse_map_method(method: str):
+    """Devuelve (metodo canonico, kwargs) a partir de una clave posiblemente compuesta.
+
+    Sufijos disponibles (combinables, en cualquier orden):
+    - '-hipB' / '-hipW': lectura de jugada hipotetica -> hypothetical_color
+    - '-raw' (alias '-suma'): sin promedio por capa -> normalize_by_layer=False
+
+    Ejemplos: 'cubic' -> ('cubic', {});
+              'quadratic-hipB-raw' -> ('quadratic',
+                  {'hypothetical_color': 'B', 'normalize_by_layer': False}).
+    """
+    raw = str(method).strip().lower().replace('_', '-')
+    kwargs = {}
+    changed = True
+    while changed:
+        changed = False
+        for flag in ('-raw', '-suma'):
+            if raw.endswith(flag):
+                kwargs['normalize_by_layer'] = False
+                raw = raw[: -len(flag)]
+                changed = True
+        for suffix, color in HYP_METHOD_SUFFIXES.items():
+            marker = f'-{suffix}'
+            if raw.endswith(marker):
+                kwargs['hypothetical_color'] = color
+                raw = raw[: -len(marker)]
+                changed = True
+                break
+    return normalize_map_method(raw), kwargs
+
+
+def split_map_method(method: str):
+    """Compatibilidad: (metodo canonico, color hipotetico o None)."""
+    canonical, kwargs = parse_map_method(method)
+    return canonical, kwargs.get('hypothetical_color')
+
+
+def map_method_label(method: str) -> str:
+    canonical, kwargs = parse_map_method(method)
+    label = MAP_METHOD_LABELS.get(canonical, str(canonical).title())
+    hyp_color = kwargs.get('hypothetical_color')
+    if hyp_color is not None:
+        label = f"{label} | hip. {'Negro' if hyp_color == 'B' else 'Blanco'}"
+    if kwargs.get('normalize_by_layer') is False:
+        label = f"{label} | suma"
+    return label
+
+
+def spin_from_stone(stone) -> int:
+    """Map board symbols to spin-1 values: B=-1, W=+1, empty=0."""
+    value = str(stone)
+    if value in IsingGoConfig.STONE_TO_SPIN:
+        return IsingGoConfig.STONE_TO_SPIN[value]
+    if value in {'0', '.', 'None'}:
+        return 0
+    raise ValueError(f"Valor de tablero no soportado: {stone!r}")
+
+
+def spin_from_color(color) -> int:
+    """Map a color token to a spin value for hypothetical moves."""
+    if color is None:
+        raise ValueError("color no puede ser None")
+    if isinstance(color, (int, float)):
+        spin = int(color)
+        if spin in (-1, 1):
+            return spin
+    token = str(color).strip().lower()
+    if token in {'b', 'black', 'negro', '-1'}:
+        return -1
+    if token in {'w', 'white', 'blanco', '+1', '1'}:
+        return 1
+    raise ValueError(f"Color no soportado: {color!r}")
+
+
+def cubic_interaction(s0: float, s1: float) -> float:
+    """Mapa cúbico: s0 + 2*s1 - s0*s1^2 - s0^2*s1."""
+    return s0 + 2.0 * s1 - s0 * (s1 ** 2) - (s0 ** 2) * s1
+
+
+def quadratic_interaction(s0: float, s1: float, J: float = 1.0) -> float:
+    """Mapa cuadrático tipo Ising/Atomic-Go: -J*s0*s1."""
+    return -float(J) * s0 * s1
+
+
+class PositionalMapModel:
+    """Modelo local spin-1 para mapas posicionales del tablero de Go.
+
+    Por defecto implementa la linea actual del README:
+    - capas Manhattan R=1..manhattan_distance;
+    - peso por capa w_R = 1/R;
+    - normalizacion por la cantidad real de vecinos validos en cada capa.
+    """
+
+    def __init__(
+        self,
+        method: str = 'cubic',
+        *,
+        manhattan_distance: int = 1,
+        J: float = 1.0,
+        normalize_by_layer: bool = True,
+        hypothetical_color=None,
+    ):
+        canonical = normalize_map_method(method)
+        if canonical not in {'cubic', 'quadratic'}:
+            raise ValueError(
+                f"PositionalMapModel solo acepta 'cubic' o 'quadratic', no {method!r}"
+            )
+        self.method = canonical
+        self.model_type = canonical
+        self.manhattan_distance = int(manhattan_distance)
+        self.J = float(J)
+        self.normalize_by_layer = bool(normalize_by_layer)
+        self.hypothetical_spin = (
+            spin_from_color(hypothetical_color) if hypothetical_color is not None else None
+        )
+        self.layers = self._build_layers(self.manhattan_distance)
+
+    @staticmethod
+    def _build_layers(manhattan_distance: int):
+        layers = {}
+        for dist in range(1, int(manhattan_distance) + 1):
+            offsets = []
+            for dx in range(-dist, dist + 1):
+                for dy in range(-dist, dist + 1):
+                    if abs(dx) + abs(dy) == dist:
+                        offsets.append((dx, dy))
+            layers[dist] = offsets
+        return layers
+
+    @staticmethod
+    def distance_weight(dist: int) -> float:
+        return 1.0 / float(dist)
+
+    def local_interaction(self, center_spin: float, neighbor_spin: float) -> float:
+        if self.method == 'cubic':
+            return cubic_interaction(center_spin, neighbor_spin)
+        return quadratic_interaction(center_spin, neighbor_spin, J=self.J)
+
+    def _center_spin(self, board: np.ndarray, x: int, y: int) -> int:
+        if self.hypothetical_spin is not None and str(board[x, y]) == '.':
+            return self.hypothetical_spin
+        return spin_from_stone(board[x, y])
+
+    def compute_energy(self, board: np.ndarray, x: int, y: int) -> float:
+        center_spin = self._center_spin(board, x, y)
+        total = 0.0
+
+        for dist, offsets in self.layers.items():
+            layer_sum = 0.0
+            layer_count = 0
+            for dx, dy in offsets:
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < board.shape[0] and 0 <= ny < board.shape[1]:
+                    neighbor_spin = spin_from_stone(board[nx, ny])
+                    layer_sum += self.local_interaction(center_spin, neighbor_spin)
+                    layer_count += 1
+            if layer_count == 0:
+                continue
+            if self.normalize_by_layer:
+                layer_sum /= layer_count
+            total += self.distance_weight(dist) * layer_sum
+
+        return float(total)
+
+
+class CubicSpinMapModel(PositionalMapModel):
+    """Mapa cúbico spin-1 para influencia/ventaja local."""
+
+    def __init__(self, **kwargs):
+        super().__init__('cubic', **kwargs)
+
+
+class QuadraticSpinMapModel(PositionalMapModel):
+    """Mapa cuadrático -J*s0*s1 para conexión/corte."""
+
+    def __init__(self, **kwargs):
+        super().__init__('quadratic', **kwargs)
+
+
+def create_positional_map_model(method: str, *, manhattan_distance: int = 1, **kwargs):
+    """Factory for the current named positional maps.
+
+    Acepta claves compuestas, p. ej. 'cubic-hipB' (lectura hipotetica) o
+    'quadratic-raw' (sin promedio por capa); ver parse_map_method.
+    """
+    canonical, method_kwargs = parse_map_method(method)
+    for key, value in method_kwargs.items():
+        kwargs.setdefault(key, value)
+    if canonical == 'cubic':
+        return CubicSpinMapModel(manhattan_distance=manhattan_distance, **kwargs)
+    if canonical == 'quadratic':
+        return QuadraticSpinMapModel(manhattan_distance=manhattan_distance, **kwargs)
+    raise ValueError(f"El metodo {method!r} no es un mapa posicional directo")
 
 
 # ============================================================================
@@ -312,6 +558,71 @@ class QuantumIsingModel:
             records.append(rec)
         return records
 
+    # ------------------------------------------------------------------
+    # Medidas dinamicas de entrelazamiento (parte genuinamente cuantica)
+    # ------------------------------------------------------------------
+
+    def _apply_evolution(self, time_param, steps: int):
+        """Aplica e^{-iHt} con TrotterProduct; fallback a ApproxTimeEvolution."""
+        try:
+            qml.TrotterProduct(self.hamiltonian, time=time_param, n=int(steps), order=2)
+        except Exception:
+            qml.ApproxTimeEvolution(self.hamiltonian, time_param, int(steps))
+
+    def _get_state_qnode(self):
+        """QNode cacheado que devuelve el estado del kernel evolucionado."""
+        if getattr(self, '_state_qnode_cache', None) is None:
+            @qml.qnode(self.dev)
+            def _state(board_in, cx, cy, time_param, steps):
+                self._initialize_kernel_qubits(board_in, cx, cy)
+                if float(time_param) != 0.0:
+                    self._apply_evolution(time_param, steps)
+                return qml.state()
+            self._state_qnode_cache = _state
+        return self._state_qnode_cache
+
+    def evolved_state(self, board: np.ndarray, x: int, y: int, t: float, *, steps: int = 4) -> np.ndarray:
+        """Estado del kernel local tras evolucionar bajo e^{-iHt}."""
+        return np.asarray(self._get_state_qnode()(board, x, y, float(t), int(steps)))
+
+    def entanglement_measures(self, board: np.ndarray, x: int, y: int, t: float, *, steps: int = 4) -> Dict:
+        """Medidas del kernel evolucionado que el modelo clasico NO puede reproducir.
+
+        Returns:
+            dict con:
+            - entropy_center: entropia de von Neumann (bits) del qubit central
+            - entropies: entropia por qubit
+            - expZ: <Z_i> por qubit
+            - connected_zz: {j: <Z_0 Z_j> - <Z_0><Z_j>} (correlacion conectada)
+        """
+        state = self.evolved_state(board, x, y, t, steps=steps)
+        n = self.n_qubits
+        probs = np.abs(state) ** 2
+        z_signs = [_z_eigenvalues(n, w) for w in range(n)]
+        expZ = [float((probs * z_signs[w]).sum()) for w in range(n)]
+        connected = {}
+        for j in range(1, n):
+            zz = float((probs * z_signs[0] * z_signs[j]).sum())
+            connected[j] = zz - expZ[0] * expZ[j]
+        entropies = [
+            vn_entropy_bits(reduced_density_matrix(state, w, n)) for w in range(n)
+        ]
+        return {
+            't': float(t),
+            'position': (int(x), int(y)),
+            'entropy_center': entropies[0],
+            'entropies': entropies,
+            'expZ': expZ,
+            'connected_zz': connected,
+        }
+
+    def entanglement_over_times(self, board: np.ndarray, x: int, y: int, times, *, steps: int = 4):
+        """entanglement_measures para una lista/array de tiempos."""
+        return [
+            self.entanglement_measures(board, x, y, float(t), steps=steps)
+            for t in times
+        ]
+
     def get_hamiltonian_info(self) -> Dict:
         """Retorna informaciÃ³n del Hamiltoniano."""
         return {
@@ -320,6 +631,34 @@ class QuantumIsingModel:
             'observables': [str(obs) for obs in self.hamiltonian.ops],
             'hamiltonian_str': str(self.hamiltonian)
         }
+
+
+# ----------------------------------------------------------------------------
+# Helpers de estados: eigenvalores Z, matriz densidad reducida, entropia
+# ----------------------------------------------------------------------------
+
+def _z_eigenvalues(n_qubits: int, wire: int) -> np.ndarray:
+    """Eigenvalor de Z en `wire` (+1/-1) para cada indice de la base computacional.
+
+    Convencion PennyLane: el wire 0 es el bit mas significativo del indice.
+    """
+    idx = np.arange(2 ** n_qubits)
+    bits = (idx >> (n_qubits - 1 - wire)) & 1
+    return 1.0 - 2.0 * bits
+
+
+def reduced_density_matrix(state: np.ndarray, wire: int, n_qubits: int) -> np.ndarray:
+    """Matriz densidad reducida (2x2) de un qubit a partir del estado puro."""
+    psi = np.asarray(state).reshape([2] * n_qubits)
+    psi = np.moveaxis(psi, wire, 0).reshape(2, -1)
+    return psi @ psi.conj().T
+
+
+def vn_entropy_bits(rho: np.ndarray, eps: float = 1e-12) -> float:
+    """Entropia de von Neumann en bits: S = -sum(p log2 p)."""
+    evals = np.linalg.eigvalsh(rho).real
+    evals = evals[evals > eps]
+    return float(-(evals * np.log2(evals)).sum()) if evals.size else 0.0
 
 
 # ============================================================================
@@ -425,6 +764,69 @@ class ClassicalIsingModel:
 
 
 # ============================================================================
+# MAPA DINAMICO DE ENTRELAZAMIENTO
+# ============================================================================
+
+class QuantumDynamicMapModel:
+    """Mapa dinamico: estadistico del kernel local evolucionado bajo e^{-iHt}.
+
+    A diferencia del mapa estatico (que factoriza y es exactamente el mapa
+    cubico clasico), la evolucion temporal genera entrelazamiento porque los
+    terminos Z(x)X y X(x)Z del Hamiltoniano no conmutan. Este modelo resume esa
+    dinamica en un escalar por punto del tablero, integrable con
+    EnergyMapGenerator.
+
+    Estadisticos disponibles (`statistic`):
+    - 'entropy_mean': promedio temporal de la entropia de von Neumann del qubit
+      central (bits). Mide cuanta "tension cuantica" genera el entorno; >= 0.
+    - 'entropy_max': maximo temporal de esa entropia.
+    - 'z_mean': promedio temporal de <Z_0> (influencia dinamica; escala
+      blanco-positivo como el mapa cubico).
+    - 'conn_mean': promedio temporal de la correlacion conectada media
+      |<Z_0 Z_j> - <Z_0><Z_j>| con los vecinos del kernel.
+    """
+
+    STATISTICS = ('entropy_mean', 'entropy_max', 'z_mean', 'conn_mean')
+
+    def __init__(
+        self,
+        manhattan_distance: int = 1,
+        *,
+        times=None,
+        steps: int = 4,
+        statistic: str = 'entropy_mean',
+    ):
+        if statistic not in self.STATISTICS:
+            raise ValueError(
+                f"statistic debe ser uno de {self.STATISTICS}, no {statistic!r}"
+            )
+        self.quantum = QuantumIsingModel(manhattan_distance=manhattan_distance)
+        self.manhattan_distance = int(manhattan_distance)
+        self.times = (
+            np.linspace(0.0, 2.0 * np.pi, 16) if times is None
+            else np.asarray(times, dtype=float)
+        )
+        self.steps = int(steps)
+        self.statistic = str(statistic)
+        self.model_type = f'quantum-dynamic-{self.statistic}'
+
+    def compute_energy(self, board: np.ndarray, x: int, y: int) -> float:
+        records = self.quantum.entanglement_over_times(
+            board, x, y, self.times, steps=self.steps
+        )
+        if self.statistic == 'entropy_mean':
+            return float(np.mean([r['entropy_center'] for r in records]))
+        if self.statistic == 'entropy_max':
+            return float(np.max([r['entropy_center'] for r in records]))
+        if self.statistic == 'z_mean':
+            return float(np.mean([r['expZ'][0] for r in records]))
+        # 'conn_mean'
+        return float(np.mean([
+            np.mean(np.abs(list(r['connected_zz'].values()))) for r in records
+        ]))
+
+
+# ============================================================================
 # CLASE 4: GENERADOR DE MAPAS DE ENERGA
 # ============================================================================
 
@@ -435,13 +837,18 @@ class EnergyMapGenerator:
     Integra modelos cuÃ¡nticos y clÃ¡sicos con GoBoard.
     """
     
-    def __init__(self, model: Union[QuantumIsingModel, ClassicalIsingModel]):
+    def __init__(self, model):
         """
         Args:
-            model: Instancia de QuantumIsingModel o ClassicalIsingModel
+            model: Instancia con metodo compute_energy(board, i, j)
         """
         self.model = model
-        self.model_type = 'quantum' if isinstance(model, QuantumIsingModel) else 'classical'
+        if isinstance(model, QuantumIsingModel):
+            self.model_type = 'quantum'
+        elif isinstance(model, ClassicalIsingModel):
+            self.model_type = 'legacy-classical'
+        else:
+            self.model_type = getattr(model, 'model_type', 'positional')
     
     def generate_energy_map(self, board: np.ndarray) -> np.ndarray:
         """

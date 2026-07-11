@@ -8,17 +8,28 @@ Mantiene la API pÃºblica esperada:
 - GameNavigator
 - export_position_image, create_move_animation, compare_positions
 
-El navegador ofrece pestaÃ±as superiores: Libertades, Jugadas y (opcional)
-mapas de energÃ­a: M1-Quantum, M1-Classical, M2-Quantum, M2-Classical.
+El navegador ofrece pestañas superiores: Libertades, Jugadas y (opcional)
+mapas posicionales: M1/M2 Cúbico y M1/M2 Cuadrático.
 """
 
 from typing import List, Dict, Optional
+import copy
+import importlib
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from IPython.display import clear_output
 from ipywidgets import IntSlider, Button, ToggleButtons, HBox, VBox, Output, Layout, Tab, Checkbox
+
+
+def _load_energy_viz_module():
+    """Load/reload the map visualization module if a notebook cached an old copy."""
+    import src.go_energy_viz as gev
+    required = ('selected_map_tab_specs', '_compute_energy_map', '_figure_for_energy')
+    if not all(hasattr(gev, name) for name in required):
+        gev = importlib.reload(gev)
+    return gev
 
 
 class GoBoardVisualizer:
@@ -182,7 +193,7 @@ class GoBoardVisualizer:
 
 
 class GameNavigator:
-    """NavegaciÃ³n interactiva con tabs superiores (Libertades, Jugadas y EnergÃ­a)."""
+    """Navegación interactiva con tabs superiores y mapas posicionales."""
 
     def __init__(self, moves: List[Dict], board_size: int = 19):
         from src.go_game_engine import GoBoard
@@ -191,33 +202,36 @@ class GameNavigator:
         self.GoBoard = GoBoard
         self.board = GoBoard(size=self.board_size)
         self.current_move = 0
+        self._board_cache = {0: copy.deepcopy(self.board)}
 
     def _rebuild_to(self, move: int):
+        move = int(move)
+        if move in self._board_cache:
+            self.board = copy.deepcopy(self._board_cache[move])
+            self.current_move = move
+            return
+
         self.board = self.GoBoard(size=self.board_size)
         if move > 0:
             self.board.replay_moves(self.moves[:move])
         self.current_move = move
+        self._board_cache[move] = copy.deepcopy(self.board)
 
     def go_to_move(self, move: int):
         """Public wrapper to jump to a given move index."""
         self._rebuild_to(int(move))
 
     def create_analysis_view(self, figsize=(9, 9), include_energy_tab: bool = False, debug: bool = False, energy_backend: str = 'bokeh', energy_tabs: Optional[List[str]] = None):
-        """Conserva compatibilidad: si include_energy_tab=True, usa pestaÃ±as de energÃ­a arriba.
+        """Conserva compatibilidad: si include_energy_tab=True, usa pestañas de mapas arriba.
 
         Args:
             figsize: tamaÃ±o de figura
-            include_energy_tab: si True, aÃ±ade pestaÃ±as de energÃ­a (M1/M2 Ã— Q/C)
-            debug: si True, imprime logs (min/max energÃ­a, shapes) en cada pestaÃ±a
+            include_energy_tab: si True, añade pestañas de mapas posicionales
+            debug: si True, imprime logs (min/max, shapes) en cada pestaña
         """
         return self.create_view(figsize=figsize, include_energy_tabs=include_energy_tab, debug=debug, energy_backend=energy_backend, energy_tabs=energy_tabs)
 
     def create_view(self, figsize=(9, 9), include_energy_tabs: bool = True, debug: bool = False, energy_backend: str = 'bokeh', energy_tabs: Optional[List[str]] = None):
-        # outputs
-        out_lib = Output(); out_moves = Output()
-        out_m1_q = Output(); out_m1_c = Output(); out_m2_q = Output(); out_m2_c = Output()
-
-        # Asegurar Bokeh en el notebook una sola vez
         if include_energy_tabs:
             try:
                 from bokeh.io import output_notebook as _bn_out
@@ -225,125 +239,126 @@ class GameNavigator:
             except Exception:
                 pass
 
-        def update_all():
-            vis = GoBoardVisualizer(self.board)
-            with out_lib:
-                clear_output(wait=True)
-                fig, _ = vis.plot_matplotlib(
-                    title=f"Movimiento {self.current_move}/{len(self.moves)}",
-                    show_liberties=True,
-                    figsize=figsize,
-                ); plt.show()
-            with out_moves:
-                clear_output(wait=True)
-                fig, _ = vis.plot_matplotlib(
-                    title=f"Movimiento {self.current_move}/{len(self.moves)}",
-                    show_move_numbers=True,
-                    figsize=figsize,
-                ); plt.show()
+        out_lib = Output()
+        out_moves = Output()
+        tab_defs = [
+            ('lib', out_lib, 'Libertades', None),
+            ('moves', out_moves, 'Jugadas', None),
+        ]
 
-            if include_energy_tabs:
+        if include_energy_tabs:
+            try:
+                gev = _load_energy_viz_module()
+                for key, dist, method, title in gev.selected_map_tab_specs(energy_tabs):
+                    tab_defs.append((key, Output(), title, (dist, method, title)))
+            except Exception as e:
+                tab_defs.append(('map-error', Output(), 'Mapas', ('error', e, 'Mapas')))
+
+        tabs = Tab(children=[item[1] for item in tab_defs])
+        for idx, item in enumerate(tab_defs):
+            try:
+                tabs.set_title(idx, item[2])
+            except Exception:
+                pass
+
+        rendered_at = {}
+
+        def _map_totals(emap):
+            if emap.size:
+                e_w = float(np.sum(emap[emap > 0.0])) if np.any(emap > 0) else 0.0
+                e_b = -float(np.sum(emap[emap < 0.0])) if np.any(emap < 0) else 0.0
+            else:
+                e_w = e_b = 0.0
+            eps = 1e-9
+            total = max(e_w + e_b, eps)
+            return e_w, e_b, e_w / total, e_b / total
+
+        def _render_summary(emap):
+            e_w, e_b, sw, sb = _map_totals(emap)
+            vmax = max(e_w, e_b, 1.0)
+            fig_s, ax_s = plt.subplots(1, 1, figsize=(3.6, 2.8))
+            ax_s.bar(['Blanco', 'Negro'], [e_w, e_b], color=['#e5e7eb', '#111827'])
+            ax_s.set_ylim(0, vmax * 1.15)
+            ax_s.text(0, e_w + vmax * 0.03, f"{e_w:.1f}\n({sw * 100:.1f}%)",
+                      ha='center', va='bottom', fontsize=9, color='#374151')
+            ax_s.text(1, e_b + vmax * 0.03, f"{e_b:.1f}\n({sb * 100:.1f}%)",
+                      ha='center', va='bottom', fontsize=9, color='#374151')
+            ax_s.set_title('Resumen del mapa')
+            ax_s.set_ylabel('Suma absoluta')
+            ax_s.ticklabel_format(style='plain', axis='y')
+            fig_s.tight_layout()
+            plt.show()
+
+        def _render_map(out, dist, method, title):
+            with out:
+                clear_output(wait=True)
                 try:
-                    from src.go_energy_viz import _compute_energy_map as _cem, _figure_for_energy as _fig
+                    gev = _load_energy_viz_module()
                     board_np = np.array(self.board.board, dtype=str)
-                    # Seleccin de pestaas a renderizar
-                    opt = [
-                        ("m1-quantum",   1, 'quantum',  'M1 | Quantum',   out_m1_q),
-                        ("m1-classical", 1, 'classical','M1 | Classical', out_m1_c),
-                        ("m2-quantum",   2, 'quantum',  'M2 | Quantum',   out_m2_q),
-                        ("m2-classical", 2, 'classical','M2 | Classical', out_m2_c),
-                    ]
-                    allowed = set(t.lower() for t in (energy_tabs if energy_tabs is not None else ['m2-quantum']))
-                    sel = [o for o in opt if o[0] in allowed]
+                    if debug:
+                        print(f"[Map] {title} | board shape={board_np.shape}")
+                    emap = gev._compute_energy_map(board_np, dist, method)
 
-                    def _render_bokeh(out, dist, method, title):
+                    if energy_backend == 'mpl':
+                        v = float(max(abs(np.min(emap)), abs(np.max(emap)))) or 1.0
+                        vis = GoBoardVisualizer(self.board)
+                        fig, ax = vis.plot_matplotlib(
+                            title=title,
+                            show_liberties=False,
+                            show_move_numbers=False,
+                            figsize=(5.0, 5.0),
+                        )
+                        ax.imshow(emap, cmap='coolwarm', vmin=-v, vmax=v, origin='upper', alpha=0.45, zorder=1)
+                        plt.tight_layout()
+                        plt.show()
+                    else:
                         from bokeh.embed import file_html as _bokeh_file_html
                         from bokeh.resources import INLINE as _BK_INLINE
                         from IPython.display import HTML as _IPY_HTML, display as _ipy_display
-                        import matplotlib.pyplot as _plt
-                        with out:
-                            clear_output(wait=True)
-                            emap = _cem(board_np, dist, method)
+                        bokeh_fig = gev._figure_for_energy(board_np, emap, title)
+                        html = _bokeh_file_html(bokeh_fig, _BK_INLINE, title)
+                        _ipy_display(_IPY_HTML(html))
 
-                            # Generar figura Bokeh (puede internamente crear figuras MPL; las cerramos)
-                            bokeh_fig = _fig(board_np, emap, title)
-                            try:
-                                # Cerrar cualquier figura matplotlib que _fig pudiera haber creado
-                                _plt.close('all')
-                            except Exception:
-                                pass
-
-                            # Mostrar Bokeh (mapa) en el output
-                            html = _bokeh_file_html(bokeh_fig, _BK_INLINE, title)
-                            _ipy_display(_IPY_HTML(html))
-
-                            # Barras compactas (MPL) ABAJO
-                            if emap.size:
-                                e_w = float(np.sum(emap[emap > 0.0])) if np.any(emap > 0) else 0.0
-                                e_b = -float(np.sum(emap[emap < 0.0])) if np.any(emap < 0) else 0.0
-                            else:
-                                e_w = e_b = 0.0
-                            eps = 1e-9
-                            total = max(e_w + e_b, eps)
-                            sw = e_w/total if total else 0.0
-                            sb = e_b/total if total else 0.0
-                            vmax = max(e_w, e_b, 1.0)
-                            fig_s, ax_s = _plt.subplots(1, 1, figsize=(3.6, 2.8))
-                            ax_s.bar(['Blanco','Negro'], [e_w, e_b], color=['#e5e7eb', '#111827'])
-                            ax_s.set_ylim(0, vmax*1.15)
-                            ax_s.text(0, e_w + vmax*0.03, '{:.1f}\n({:.1f}%)'.format(e_w, sw*100),
-                                      ha='center', va='bottom', fontsize=9, color='#374151')
-                            ax_s.text(1, e_b + vmax*0.03, '{:.1f}\n({:.1f}%)'.format(e_b, sb*100),
-                                      ha='center', va='bottom', fontsize=9, color='#374151')
-                            ax_s.set_title('Energia BRUTA (M2)'); ax_s.set_ylabel('Suma de energia')
-                            ax_s.ticklabel_format(style='plain', axis='y')
-                            fig_s.tight_layout()
-                            _plt.show()
-
-                    def _render_mpl(out, dist, method, title):
-                        import matplotlib.pyplot as _plt
-                        with out:
-                            clear_output(wait=True)
-                            if debug:
-                                print(f"[Energy/MPL] Computing {title}â€¦ board shape={board_np.shape}")
-                            emap = _cem(board_np, dist, method)
-                            v = float(max(abs(np.min(emap)), abs(np.max(emap)))) or 1.0
-                            # Base del tablero con el mismo estilo que GoBoardVisualizer
-                            vis = GoBoardVisualizer(self.board)
-                            fig, ax = vis.plot_matplotlib(title=title, show_liberties=False, show_move_numbers=False, figsize=(5.0, 5.0))
-                            ax.imshow(emap, cmap='coolwarm', vmin=-v, vmax=v, origin='upper', alpha=0.45, zorder=1)
-                            _plt.tight_layout(); _plt.show()
-                            # Barras compactas (MPL) bajo el mapa
-                            if emap.size:
-                                _eW = float(np.sum(emap[emap > 0.0])) if np.any(emap > 0) else 0.0
-                                _eB = -float(np.sum(emap[emap < 0.0])) if np.any(emap < 0) else 0.0
-                            else:
-                                _eW = _eB = 0.0
-                            _eps = 1e-9; _total = max(_eW + _eB, _eps)
-                            _sw, _sb = _eW/_total, _eB/_total
-                            _vmax = max(_eW, _eB, 1.0)
-                            _figS, _axS = _plt.subplots(1, 1, figsize=(4.6, 3.8))
-                            _axS.bar(['Blanco','Negro'], [_eW, _eB], color=['#e5e7eb', '#111827'])
-                            _axS.set_ylim(0, _vmax*1.15)
-                            _axS.text(0, _eW + _vmax*0.03, f"{_eW:.1f}\n({(_sw*100):.1f}%)", ha='center', va='bottom', fontsize=9, color='#374151')
-                            _axS.text(1, _eB + _vmax*0.03, f"{_eB:.1f}\n({(_sb*100):.1f}%)", ha='center', va='bottom', fontsize=9, color='#374151')
-                            _axS.set_title('Energia BRUTA (M2)'); _axS.set_ylabel('Suma de energia')
-                            _axS.ticklabel_format(style='plain', axis='y')
-                            _figS.tight_layout(); _plt.show()
-                            if debug:
-                                print(f"[Energy/MPL] {title} rendered OK (Matplotlib)")
-
-                    if energy_backend == 'mpl':
-                        for _, dist, method, title, out in sel:
-                            _render_mpl(out, dist, method, title)
-                    else:
-                        for _, dist, method, title, out in sel:
-                            _render_bokeh(out, dist, method, title)
+                    _render_summary(emap)
                 except Exception as e:
-                    for out in (out_m1_q, out_m1_c, out_m2_q, out_m2_c):
-                        with out:
-                            clear_output(wait=True)
-                            print('[Aviso] No se pudo renderizar Bokeh:', e)
+                    print('[Aviso] No se pudo renderizar el mapa:', e)
+
+        def render_current(force: bool = False):
+            idx = tabs.selected_index if tabs.selected_index is not None else 0
+            key, out, _, spec = tab_defs[idx]
+            render_key = (key, self.current_move)
+            if not force and rendered_at.get(key) == render_key:
+                return
+
+            if key == 'lib':
+                vis = GoBoardVisualizer(self.board)
+                with out:
+                    clear_output(wait=True)
+                    fig, _ = vis.plot_matplotlib(
+                        title=f"Movimiento {self.current_move}/{len(self.moves)}",
+                        show_liberties=True,
+                        figsize=figsize,
+                    )
+                    plt.show()
+            elif key == 'moves':
+                vis = GoBoardVisualizer(self.board)
+                with out:
+                    clear_output(wait=True)
+                    fig, _ = vis.plot_matplotlib(
+                        title=f"Movimiento {self.current_move}/{len(self.moves)}",
+                        show_move_numbers=True,
+                        figsize=figsize,
+                    )
+                    plt.show()
+            elif spec and spec[0] == 'error':
+                with out:
+                    clear_output(wait=True)
+                    print('[Aviso] No se pudieron preparar las pestañas de mapas:', spec[1])
+            else:
+                dist, method, title = spec
+                _render_map(out, dist, method, title)
+
+            rendered_at[key] = render_key
 
         # controls
         slider = IntSlider(value=0, min=0, max=len(self.moves), step=1,
@@ -357,42 +372,28 @@ class GameNavigator:
         btn_last = Button(description='Final', button_style='info', layout=Layout(width='100px'))
 
         def _jump(val):
-            self._rebuild_to(val); update_all()
+            self._rebuild_to(val)
+            render_current(force=True)
+
+        def _set_move(val):
+            val = int(val)
+            if slider.value == val:
+                _jump(val)
+            else:
+                slider.value = val
 
         slider.observe(lambda ch: _jump(ch['new']), names='value')
-        btn_first.on_click(lambda _: _jump(0))
-        btn_prev10.on_click(lambda _: _jump(max(0, slider.value - 10)))
-        btn_prev.on_click(lambda _: _jump(max(0, slider.value - 1)))
-        btn_next.on_click(lambda _: _jump(min(len(self.moves), slider.value + 1)))
-        btn_next10.on_click(lambda _: _jump(min(len(self.moves), slider.value + 10)))
-        btn_last.on_click(lambda _: _jump(len(self.moves)))
-
-        # tabs superiores
-        if include_energy_tabs:
-            # Construir children segn seleccin
-            mapping = [
-                ("m1-quantum",   out_m1_q, 'M1-Quantum'),
-                ("m1-classical", out_m1_c, 'M1-Classical'),
-                ("m2-quantum",   out_m2_q, 'M2-Quantum'),
-                ("m2-classical", out_m2_c, 'M2-Classical'),
-            ]
-            allowed = set(t.lower() for t in (energy_tabs if energy_tabs is not None else ['m2-quantum']))
-            order = [m for m in mapping if m[0] in allowed]
-            children = [out_lib, out_moves] + [m[1] for m in order]
-            tabs = Tab(children=children)
-            try:
-                tabs.set_title(0, 'Libertades'); tabs.set_title(1, 'Jugadas')
-                for idx, m in enumerate(order, start=2):
-                    tabs.set_title(idx, m[2])
-            except Exception:
-                pass
-        else:
-            tabs = Tab(children=[out_lib, out_moves])
-            tabs.set_title(0, 'Libertades'); tabs.set_title(1, 'Jugadas')
+        btn_first.on_click(lambda _: _set_move(0))
+        btn_prev10.on_click(lambda _: _set_move(max(0, slider.value - 10)))
+        btn_prev.on_click(lambda _: _set_move(max(0, slider.value - 1)))
+        btn_next.on_click(lambda _: _set_move(min(len(self.moves), slider.value + 1)))
+        btn_next10.on_click(lambda _: _set_move(min(len(self.moves), slider.value + 10)))
+        btn_last.on_click(lambda _: _set_move(len(self.moves)))
+        tabs.observe(lambda _: render_current(force=False), names='selected_index')
 
         # render inicial
         self._rebuild_to(0)
-        update_all()
+        render_current(force=True)
         controls = VBox([slider, HBox([btn_first, btn_prev10, btn_prev, btn_next, btn_next10, btn_last])])
         return VBox([controls, tabs])
 
@@ -533,13 +534,13 @@ class BoardEditor:
         self._figsize = figsize
         self._energy_backend = energy_backend
         self._show_log = bool(show_log)
-        # Seleccin opcional de pestaas para "Ver Energa"
+        # Seleccion opcional de pestañas para "Ver mapa".
         self._energy_tabs = tuple(t.lower() for t in energy_tabs) if energy_tabs else None
 
-        # Asegurar pestaas por defecto (M2-Quantum) si no se especificaron
+        # Asegurar pestañas por defecto (M2-Cubic) si no se especificaron
         if getattr(self, '_energy_tabs', None) is None:
             if energy_tabs is None:
-                energy_tabs = ['m2-quantum']
+                energy_tabs = ['m2-cubic']
             self._energy_tabs = tuple(t.lower() for t in energy_tabs)
 
         # Widgets y salidas
@@ -560,7 +561,7 @@ class BoardEditor:
         self._btn_pass = Button(description='Pass', button_style='')
         self._btn_undo = Button(description='Undo', button_style='warning')
         self._btn_clear = Button(description='Clear', button_style='danger')
-        self._btn_energy = Button(description='Ver EnergÃ­a', button_style='info')
+        self._btn_energy = Button(description='Ver mapa', button_style='info')
 
         # Estado de figura para manejar clicks
         self._fig = None
@@ -632,9 +633,9 @@ class BoardEditor:
                 self._color_picker.value = 'W' if color == 'B' else 'B'
         except Exception:
             pass
-        # Resumen de energa global (M2, quantum) acorde a tu convencin
+        # Resumen del mapa global por defecto.
         try:
-            self._energy_summary(dist=2, method='quantum')
+            self._energy_summary(dist=2, method='cubic')
         except Exception:
             pass
         # Actualizar panel grfico
@@ -655,7 +656,7 @@ class BoardEditor:
             self._log("â†©ï¸ Deshacer: OK")
             self._render_board()
             try:
-                self._energy_summary(dist=2, method='quantum')
+                self._energy_summary(dist=2, method='cubic')
                 self._update_energy_plot()
             except Exception:
                 pass
@@ -673,38 +674,23 @@ class BoardEditor:
             pass
 
     def _do_energy(self, _):
-        # Render a pestaas de energa (M1/M2  Q/C) usando backend seleccionado
+        # Render a pestañas de mapas usando backend seleccionado.
         try:
-            from src.go_energy_viz import _compute_energy_map as _cem, _figure_for_energy as _bokeh_fig
+            gev = _load_energy_viz_module()
             board_np = np.array(self.board.board, dtype=str)
-            # Preparar tabs de energa en el contenedor inferior
-            tabs = Tab(children=[self._out_m1_q, self._out_m1_c, self._out_m2_q, self._out_m2_c])
-            try:
-                tabs.set_title(0, 'M1-Q'); tabs.set_title(1, 'M1-C'); tabs.set_title(2, 'M2-Q'); tabs.set_title(3, 'M2-C')
-            except Exception:
-                pass
+
+            render_items = [
+                (key, Output(), title, dist, method)
+                for key, dist, method, title in gev.selected_map_tab_specs(self._energy_tabs)
+            ]
+            tabs = Tab(children=[item[1] for item in render_items])
+            for idx, (_, _, title, _, _) in enumerate(render_items):
+                try:
+                    tabs.set_title(idx, title)
+                except Exception:
+                    pass
             self._energy_tabs_box.children = [tabs]
-            # Filtrar pestaas visibles si se especific self._energy_tabs
-            try:
-                allowed = set(self._energy_tabs) if self._energy_tabs is not None else {
-                    'm1-quantum','m1-classical','m2-quantum','m2-classical'
-                }
-                child_map = [
-                    ('m1-quantum',   self._out_m1_q, 'M1-Q'),
-                    ('m1-classical', self._out_m1_c, 'M1-C'),
-                    ('m2-quantum',   self._out_m2_q, 'M2-Q'),
-                    ('m2-classical', self._out_m2_c, 'M2-C'),
-                ]
-                filtered_children = [w for key, w, _ in child_map if key in allowed]
-                if filtered_children:
-                    tabs.children = filtered_children
-                    for i, (key, _, title) in enumerate([t for t in child_map if t[0] in allowed]):
-                        try: tabs.set_title(i, title)
-                        except Exception: pass
-                else:
-                    tabs.children = []
-            except Exception:
-                pass
+
             if self._energy_backend == 'bokeh':
                 from bokeh.embed import file_html as _bokeh_file_html
                 from bokeh.resources import INLINE as _BK_INLINE
@@ -712,57 +698,44 @@ class BoardEditor:
                 def _render(out, dist, method, title):
                     with out:
                         clear_output(wait=True)
-                        fig = _bokeh_fig(board_np, _cem(board_np, dist, method), title)
+                        fig = gev._figure_for_energy(
+                            board_np,
+                            gev._compute_energy_map(board_np, dist, method),
+                            title,
+                        )
                         html = _bokeh_file_html(fig, _BK_INLINE, title)
                         _ipy_display(_IPY_HTML(html))
-                allowed = set(self._energy_tabs) if self._energy_tabs is not None else {
-                    'm1-quantum','m1-classical','m2-quantum','m2-classical'
-                }
-                if 'm1-quantum' in allowed:
-                    _render(self._out_m1_q, 1, 'quantum',  'M1 | Quantum')
-                if 'm1-classical' in allowed:
-                    _render(self._out_m1_c, 1, 'classical','M1 | Classical')
-                if 'm2-quantum' in allowed:
-                    _render(self._out_m2_q, 2, 'quantum',  'M2 | Quantum')
-                if 'm2-classical' in allowed:
-                    _render(self._out_m2_c, 2, 'classical','M2 | Classical')
+                for _, out, title, dist, method in render_items:
+                    _render(out, dist, method, title)
             else:
                 import matplotlib.pyplot as _plt
                 def _render(out, dist, method, title):
                     with out:
                         clear_output(wait=True)
-                        emap = _cem(board_np, dist, method)
+                        emap = gev._compute_energy_map(board_np, dist, method)
                         v = float(max(abs(np.min(emap)), abs(np.max(emap)))) or 1.0
                         vis = GoBoardVisualizer(self.board)
                         fig, ax = vis.plot_matplotlib(title=title, show_liberties=False, show_move_numbers=False, figsize=(5, 5))
                         ax.imshow(emap, cmap='coolwarm', vmin=-v, vmax=v, origin='upper', alpha=0.45, zorder=1)
                         _plt.tight_layout(); _plt.show()
-                allowed = set(self._energy_tabs) if self._energy_tabs is not None else {
-                    'm1-quantum','m1-classical','m2-quantum','m2-classical'
-                }
-                if 'm1-quantum' in allowed:
-                    _render(self._out_m1_q, 1, 'quantum',  'M1 | Quantum')
-                if 'm1-classical' in allowed:
-                    _render(self._out_m1_c, 1, 'classical','M1 | Classical')
-                if 'm2-quantum' in allowed:
-                    _render(self._out_m2_q, 2, 'quantum',  'M2 | Quantum')
-                if 'm2-classical' in allowed:
-                    _render(self._out_m2_c, 2, 'classical','M2 | Classical')
+                for _, out, title, dist, method in render_items:
+                    _render(out, dist, method, title)
         except Exception as e:
-            with self._out_m1_q:
+            with self._out_energy_plot:
                 clear_output(wait=True)
-                print('[Aviso] No se pudo renderizar energÃ­a:', e)
+                print('[Aviso] No se pudo renderizar el mapa:', e)
 
-    def _energy_summary(self, dist: int = 2, method: str = 'quantum'):
-        """Resumen de energÃ­a por color en todo el tablero.
+    def _energy_summary(self, dist: int = 2, method: str = 'cubic'):
+        """Resumen del mapa por color en todo el tablero.
 
-        ConvenciÃ³n: energÃ­as positivas se suman para Blanco; energÃ­as negativas (mÃ³dulo) para Negro,
-        independientemente de piezas presentes (influencia en vacÃ­os incluida).
+        Convencion: valores positivos se suman para Blanco; valores negativos
+        (modulo) para Negro, incluyendo influencia en vacios.
         """
         try:
-            from src.go_energy_viz import _compute_energy_map as _cem
+            gev = _load_energy_viz_module()
+            from src.go_isings_models import map_method_label
             board_np = np.array(self.board.board, dtype=str)
-            emap = _cem(board_np, dist, method)
+            emap = gev._compute_energy_map(board_np, dist, method)
             if emap.size == 0:
                 return
             pos = float(np.sum(emap[emap > 0.0])) if np.any(emap > 0) else 0.0
@@ -770,25 +743,25 @@ class BoardEditor:
             e_white = pos
             e_black = -neg
             advantage = e_white - e_black
-            self._log(f"EnergÃ­a (M{dist}-{method}): Blanco={e_white:.3f} | Negro={e_black:.3f} | Ventaja(W-B)={advantage:.3f}")
+            self._log(f"Mapa {map_method_label(method)} M{dist}: Blanco={e_white:.3f} | Negro={e_black:.3f} | Ventaja(W-B)={advantage:.3f}")
         except Exception as e:
-            if method != 'classical':
+            if method != 'cubic':
                 try:
-                    self._energy_summary(dist=dist, method='classical')
-                    self._log(f"[Aviso] Resumen con 'classical' por fallo en '{method}': {e}")
+                    self._energy_summary(dist=dist, method='cubic')
+                    self._log(f"[Aviso] Resumen con 'cubic' por fallo en '{method}': {e}")
                 except Exception as e2:
-                    self._log(f"[Aviso] No se pudo calcular resumen de energÃ­a: {e2}")
+                    self._log(f"[Aviso] No se pudo calcular resumen del mapa: {e2}")
             else:
-                self._log(f"[Aviso] No se pudo calcular resumen de energÃ­a: {e}")
+                self._log(f"[Aviso] No se pudo calcular resumen del mapa: {e}")
 
     def _update_energy_plot(self):
         """Panel: barras BRUTAS (W/B) + ventaja NORMALIZADA (W-B)."""
-        from src.go_energy_viz import _compute_energy_map as _cem
+        gev = _load_energy_viz_module()
         board_np = np.array(self.board.board, dtype=str)
         try:
-            emap = _cem(board_np, 2, 'quantum')
+            emap = gev._compute_energy_map(board_np, 2, 'cubic')
         except Exception:
-            emap = _cem(board_np, 2, 'classical')
+            emap = gev._compute_energy_map(board_np, 2, 'quadratic')
         if emap.size:
             pos = float(np.sum(emap[emap > 0.0])) if np.any(emap > 0) else 0.0
             neg = float(np.sum(emap[emap < 0.0])) if np.any(emap < 0) else 0.0
@@ -824,8 +797,8 @@ class BoardEditor:
                 pct = [share_w, share_b][i]*100
                 axes[0].text(i, v + vmax*0.03, f"{v:.1f}\n({pct:.1f}%)",
                              ha='center', va='bottom', fontsize=9, color='#374151')
-            axes[0].set_title('Energia BRUTA (M2)')
-            axes[0].set_ylabel('Suma de energia')
+            axes[0].set_title('Mapa cúbico M2')
+            axes[0].set_ylabel('Suma absoluta')
             axes[0].ticklabel_format(style='plain', axis='y')
 
             # Ventaja NORMALIZADA [-1,1] (abajo)
@@ -841,9 +814,9 @@ class BoardEditor:
             axes[1].set_ylim(-1.05, 1.05)
             axes[1].set_xlim(0.5, max(1.5, len(x)+0.5))
             axes[1].set_xticks(x)
-            axes[1].set_title('Ventaja NORMALIZADA (W-B)')
+            axes[1].set_title('Ventaja normalizada (W-B)')
             axes[1].set_xlabel('Movimiento')
-            axes[1].set_ylabel('Delta energia / total')
+            axes[1].set_ylabel('Delta mapa / total')
             axes[1].ticklabel_format(style='plain', axis='y')
             fig.tight_layout()
             plt.show()
