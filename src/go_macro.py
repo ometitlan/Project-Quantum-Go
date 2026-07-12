@@ -218,13 +218,15 @@ def fit_beta_structural(board: np.ndarray, r_max: int = 2,
 # El vector macro X_t
 # ----------------------------------------------------------------------------
 
-def macro_state(board: np.ndarray, r_max: int = 6, beta_r: int = 2) -> Dict:
+def macro_state(board: np.ndarray, r_max: int = 6, beta_r: int = 2,
+                intensity_r: int = 2) -> Dict:
     """Vector macro de una posicion, como dict plano (una fila de DataFrame).
 
     Args:
         board: tablero 'B'/'W'/'.'
         r_max: alcance de los perfiles C_occ / O / MI
         beta_r: alcance del Hamiltoniano estructural para betaJ/betaD
+        intensity_r: radio del mapa cubico para la intensidad I_cubico
     """
     C, O = correlation_profile(board, r_max)
     MI, Hc = mutual_information_profile(board, r_max)
@@ -234,7 +236,7 @@ def macro_state(board: np.ndarray, r_max: int = 6, beta_r: int = 2) -> Dict:
         'Q': occupation(board),
         'H_sitios': site_entropy(board),
         'xi_info': decay_length(MI),
-        'I_cubico': cubic_intensity(board, r_max=2),
+        'I_cubico': cubic_intensity(board, r_max=intensity_r),
         'betaJ': beta['betaJ'],
         'betaD': beta['betaD'],
         'pll': beta['pll'],
@@ -248,8 +250,8 @@ def macro_state(board: np.ndarray, r_max: int = 6, beta_r: int = 2) -> Dict:
 
 
 def macro_trajectory(moves: List[Dict], board_size: int = 19, *,
-                     r_max: int = 6, beta_r: int = 2, step: int = 1,
-                     board_cls=None):
+                     r_max: int = 6, beta_r: int = 2, intensity_r: int = 2,
+                     step: int = 1, board_cls=None):
     """Trayectoria macro X_t de una partida completa.
 
     Reproduce la partida jugada a jugada (incremental) y calcula macro_state
@@ -271,7 +273,8 @@ def macro_trajectory(moves: List[Dict], board_size: int = 19, *,
         if t % step != 0 and t != len(moves):
             continue
         board = np.array(gb.board, dtype=str)
-        row = macro_state(board, r_max=r_max, beta_r=beta_r)
+        row = macro_state(board, r_max=r_max, beta_r=beta_r,
+                          intensity_r=intensity_r)
         row['jugada'] = t
         row['color'] = move.get('color', '?')
         row['piedras_jugadas'] = stones_played
