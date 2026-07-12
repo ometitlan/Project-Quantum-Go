@@ -174,13 +174,13 @@ HYP_METHOD_SUFFIXES = {
 def parse_map_method(method: str):
     """Devuelve (metodo canonico, kwargs) a partir de una clave posiblemente compuesta.
 
-    Sufijos disponibles (combinables, en cualquier orden):
+    Sufijos disponibles:
     - '-hipB' / '-hipW': lectura de jugada hipotetica -> hypothetical_color
-    - '-raw' (alias '-suma'): sin promedio por capa -> normalize_by_layer=False
+    - '-raw' (alias '-suma'): alias historico SIN efecto — la suma directa por
+      capa es ahora el unico comportamiento de los mapas.
 
     Ejemplos: 'cubic' -> ('cubic', {});
-              'quadratic-hipB-raw' -> ('quadratic',
-                  {'hypothetical_color': 'B', 'normalize_by_layer': False}).
+              'quadratic-hipB' -> ('quadratic', {'hypothetical_color': 'B'}).
     """
     raw = str(method).strip().lower().replace('_', '-')
     kwargs = {}
@@ -189,7 +189,7 @@ def parse_map_method(method: str):
         changed = False
         for flag in ('-raw', '-suma'):
             if raw.endswith(flag):
-                kwargs['normalize_by_layer'] = False
+                # alias historico: se acepta y se ignora
                 raw = raw[: -len(flag)]
                 changed = True
         for suffix, color in HYP_METHOD_SUFFIXES.items():
@@ -214,8 +214,6 @@ def map_method_label(method: str) -> str:
     hyp_color = kwargs.get('hypothetical_color')
     if hyp_color is not None:
         label = f"{label} | hip. {'Negro' if hyp_color == 'B' else 'Blanco'}"
-    if kwargs.get('normalize_by_layer') is False:
-        label = f"{label} | suma"
     return label
 
 
@@ -276,10 +274,12 @@ def quadratic_interaction(s0: float, s1: float, J: float = 1.0) -> float:
 class PositionalMapModel:
     """Modelo local spin-1 para mapas posicionales del tablero de Go.
 
-    Por defecto implementa la linea actual del README:
+    Implementa la linea actual del README:
     - capas Manhattan R=1..manhattan_distance;
     - peso por capa w_R = 1/R;
-    - normalizacion por la cantidad real de vecinos validos en cada capa.
+    - suma directa sobre los vecinos validos de cada capa (sin promediar):
+      los puntos con menos vecinos reciben menos senal por construccion —
+      una esquina vale menos que una orilla y esta menos que el centro.
     """
 
     def __init__(
@@ -288,7 +288,6 @@ class PositionalMapModel:
         *,
         manhattan_distance: int = 1,
         J: float = 1.0,
-        normalize_by_layer: bool = True,
         hypothetical_color=None,
     ):
         canonical = normalize_map_method(method)
@@ -300,7 +299,6 @@ class PositionalMapModel:
         self.model_type = canonical
         self.manhattan_distance = int(manhattan_distance)
         self.J = float(J)
-        self.normalize_by_layer = bool(normalize_by_layer)
         self.hypothetical_spin = (
             spin_from_color(hypothetical_color) if hypothetical_color is not None else None
         )
@@ -338,17 +336,11 @@ class PositionalMapModel:
 
         for dist, offsets in self.layers.items():
             layer_sum = 0.0
-            layer_count = 0
             for dx, dy in offsets:
                 nx, ny = x + dx, y + dy
                 if 0 <= nx < board.shape[0] and 0 <= ny < board.shape[1]:
                     neighbor_spin = spin_from_stone(board[nx, ny])
                     layer_sum += self.local_interaction(center_spin, neighbor_spin)
-                    layer_count += 1
-            if layer_count == 0:
-                continue
-            if self.normalize_by_layer:
-                layer_sum /= layer_count
             total += self.distance_weight(dist) * layer_sum
 
         return float(total)
@@ -364,11 +356,11 @@ class PositionalMapModel:
         - cubico:    sum_j E = c_R*s~ + 2(K_R*s) - s~(K_R*s^2) - s~^2(K_R*s)
         - cuadratico: sum_j E = -J * s~ * (K_R*s)
         donde s~ es el spin del centro (con lectura hipotetica si aplica) y
-        c_R el numero de vecinos validos (convolucion de un tablero de unos).
+        c_R el numero de vecinos validos (convolucion de un tablero de unos),
+        necesario porque el termino s~ del cubico aporta una vez por vecino.
         """
         s = board_to_spins(board)
         s2 = s * s
-        ones = np.ones_like(s)
         if self.hypothetical_spin is not None:
             center = np.where(np.asarray(board, dtype=str) == '.',
                               float(self.hypothetical_spin), s)
@@ -379,16 +371,14 @@ class PositionalMapModel:
         for dist in self.layers:
             K = manhattan_ring_kernel(dist)
             conv_s = convolve2d(s, K, mode='same', boundary='fill', fillvalue=0.0)
-            count = convolve2d(ones, K, mode='same', boundary='fill', fillvalue=0.0)
             if self.method == 'cubic':
+                count = convolve2d(np.ones_like(s), K, mode='same',
+                                   boundary='fill', fillvalue=0.0)
                 conv_s2 = convolve2d(s2, K, mode='same', boundary='fill', fillvalue=0.0)
                 layer = (count * center + 2.0 * conv_s
                          - center * conv_s2 - (center ** 2) * conv_s)
             else:  # quadratic
                 layer = -self.J * center * conv_s
-            if self.normalize_by_layer:
-                layer = np.divide(layer, count,
-                                  out=np.zeros_like(layer), where=count > 0)
             total += self.distance_weight(dist) * layer
 
         return total
@@ -411,8 +401,8 @@ class QuadraticSpinMapModel(PositionalMapModel):
 def create_positional_map_model(method: str, *, manhattan_distance: int = 1, **kwargs):
     """Factory for the current named positional maps.
 
-    Acepta claves compuestas, p. ej. 'cubic-hipB' (lectura hipotetica) o
-    'quadratic-raw' (sin promedio por capa); ver parse_map_method.
+    Acepta claves compuestas, p. ej. 'cubic-hipB' (lectura hipotetica);
+    ver parse_map_method.
     """
     canonical, method_kwargs = parse_map_method(method)
     for key, value in method_kwargs.items():

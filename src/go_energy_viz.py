@@ -81,13 +81,13 @@ DEFAULT_MAP_TABS = ('m1-cubic', 'm2-cubic', 'm1-quadratic', 'm2-quadratic')
 
 
 def parse_map_tab_key(key: str):
-    """Parse tab keys like m1-cubic, m2-quadratic, m1-cubic-hipB, m2-quadratic-raw.
+    """Parse tab keys like m1-cubic, m2-quadratic, m1-cubic-hipB.
 
-    Sufijos combinables tras el método:
+    Sufijo tras el método:
     - '-hipB'/'-hipW': lectura de jugada hipotética en los vacíos;
-    - '-raw': sin promedio por capa (suma acumulada).
-    Los sufijos se conservan dentro del campo `method` como clave compuesta
-    ('cubic-hipb', 'quadratic-raw') para no romper a los consumidores de 4-tuplas.
+    - '-raw': alias histórico sin efecto (la suma directa es el único modo).
+    El sufijo hipotético se conserva dentro del campo `method` como clave
+    compuesta ('cubic-hipb') para no romper a los consumidores de 4-tuplas.
     """
     raw = str(key).strip().lower().replace('_', '-')
     if not raw.startswith('m') or '-' not in raw:
@@ -101,8 +101,6 @@ def parse_map_tab_key(key: str):
     hyp_color = method_kwargs.get('hypothetical_color')
     if hyp_color is not None:
         method = f"{method}-hip{hyp_color.lower()}"
-    if method_kwargs.get('normalize_by_layer') is False:
-        method = f"{method}-raw"
     canonical_key = f"m{dist}-{method}"
     title = f"M{dist} | {map_method_label(method)}"
     return canonical_key, dist, method, title

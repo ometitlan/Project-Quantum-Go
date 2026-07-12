@@ -249,11 +249,13 @@ donde $d_1$ es la distancia Manhattan. En esta etapa se consideran principalment
 
 ### Ponderación inversa con la distancia
 
-Los mapas usan una relación inversa con la distancia, $w_R = 1/R$, de modo que $w_1 = 1$ y $w_2 = 1/2$. El mapa general por capas es
+Los mapas usan una relación inversa con la distancia, $w_R = 1/R$, de modo que $w_1 = 1$ y $w_2 = 1/2$. El mapa general por capas es la **suma directa** sobre los vecinos válidos de cada capa:
 
-$$M_{\phi}(i) = \sum_{R\in\mathcal{R}} \frac{1}{R}\, \frac{1}{|S_R(i)|} \sum_{j\in S_R(i)} \phi(s_i,s_j),$$
+$$M_{\phi}(i) = \sum_{R\in\mathcal{R}} \frac{1}{R} \sum_{j\in S_R(i)} \phi(s_i,s_j),$$
 
-donde $\phi$ es la función local usada ($E_{\text{cub}}$, $E_{\text{quad}}$, u otra). La normalización por $|S_R(i)|$ evita que una capa domine solo por tener más puntos (y maneja de forma natural bordes y esquinas, donde las capas son más pequeñas); la ponderación $1/R$ controla la importancia relativa de la distancia.
+donde $\phi$ es la función local usada ($E_{\text{cub}}$, $E_{\text{quad}}$, u otra) y $S_R(i)$ contiene solo los vecinos dentro del tablero.
+
+**No se promedia por capa — decisión de modelado deliberada:** un punto con menos vecinos recibe menos señal por construcción, de modo que **una esquina vale menos que una orilla y ésta menos que un punto central**, que es la intuición correcta del Go (en la esquina hay menos libertades, menos conexiones posibles y menos espacio que influenciar). Como referencia, una piedra sola en el centro con sus 4 libertades marca $\pm 4$ en el cúbico M1; en la orilla $\pm 3$; en la esquina $\pm 2$.
 
 **Nota de implementación:** el cálculo está vectorizado con convoluciones de anillos Manhattan, así que el radio $R$ es arbitrario — un tablero 19×19 con $R=9$ se calcula en ~3 ms, lo que hace viables los experimentos por lotes con radios grandes. El backend cuántico heredado queda acotado a $R\leq 2$: su kernel usa $1+2R(R+1)$ qubits y la simulación exacta crece como $2^n$.
 
@@ -316,7 +318,7 @@ La diferencia principal es que el mapa cúbico produce señal de color incluso e
 
 El proyecto se entiende como una familia abierta de funciones. La forma general de un mapa posicional es
 
-$$M_{\phi,\tau}(i) = \sum_{R\in\mathcal{R}} \frac{1}{R}\, \frac{1}{|S_R(i)|} \sum_{j\in S_R(i)} \phi(\tilde{s}_i,s_j), \qquad \tilde{s}_i = \begin{cases} s_i, & \text{lectura del tablero actual},\\ \tau, & \text{lectura de jugada hipotética}, \end{cases}$$
+$$M_{\phi,\tau}(i) = \sum_{R\in\mathcal{R}} \frac{1}{R} \sum_{j\in S_R(i)} \phi(\tilde{s}_i,s_j), \qquad \tilde{s}_i = \begin{cases} s_i, & \text{lectura del tablero actual},\\ \tau, & \text{lectura de jugada hipotética}, \end{cases}$$
 
 con $\tau \in \{-1,+1\}$. Las funciones iniciales son $\phi_{\text{cub}}$ y $\phi_{\text{quad}}$; funciones futuras se agregan en la misma estructura:
 
@@ -460,11 +462,11 @@ dinamico = EnergyMapGenerator(QuantumDynamicMapModel(manhattan_distance=1)).gene
 - [x] Visualizaciones interactivas + exportación multimedia.
 - [x] Mapa cúbico (Manhattan-1/2) implementado y verificado contra su derivación.
 - [x] Convención de signos unificada entre código y documento: negro $=-1$, blanco $=+1$ (`STONE_TO_SPIN` en `src/go_isings_models.py`), heredada del mapeo cuántico a qubits.
-- [x] Pesos y normalización alineados con este documento: $w_R = 1/R$ con normalización por capa.
+- [x] Pesos alineados con este documento: $w_R = 1/R$ con **suma directa por capa** (sin promediar): bordes y esquinas aportan menos señal por construcción — esquina < orilla < centro.
 - [x] Mapa cuadrático $-J s_0 s_1$ implementado como función local seleccionable (`quadratic`).
 - [x] Lectura de jugada hipotética ($\tilde s_i = \tau$) integrada en notebooks e interfaz: sufijo `-hipB` / `-hipW` en las pestañas del navegador (p. ej. `m1-cubic-hipB`) y en los métodos de mapa (`cubic-hipB`).
 - [x] Radio Manhattan generalizado y vectorizado: `PositionalMapModel.compute_map` calcula el tablero completo por convoluciones de anillos para cualquier $R$ (equivalencia exacta con el cálculo punto a punto, verificada; 19×19 con $R=9$ en ~3 ms, ~40× más rápido que el bucle).
-- [x] Parte cuántica reestructurada: `Hamiltonian_and_Ising_models.ipynb` documenta la derivación, demuestra el límite clásico (factorización en estados producto, verificada a precisión de máquina) e implementa el **mapa dinámico de entrelazamiento** bajo $e^{-iHt}$ (`QuantumDynamicMapModel`: entropía de von Neumann del qubit central, correlaciones conectadas; Trotter de orden 2). En el tablero de prueba, el mapa dinámico correlaciona débilmente con los mapas clásicos (r ≈ 0.13–0.20): captura información distinta.
+- [x] Parte cuántica reestructurada: `Hamiltonian_and_Ising_models.ipynb` documenta la derivación, demuestra el límite clásico (factorización en estados producto, verificada a precisión de máquina) e implementa el **mapa dinámico de entrelazamiento** bajo $e^{-iHt}$ (`QuantumDynamicMapModel`: entropía de von Neumann del qubit central, correlaciones conectadas; Trotter de orden 2). En el tablero de prueba, el mapa dinámico correlaciona débilmente con los mapas clásicos (r ≈ 0.16–0.20): captura información distinta.
 - [x] Nivel macroscópico (`src/go_macro.py` + `notebooks/go_macro_estado.ipynb`): vector macro $X_t$ por jugada — $M$, $Q$, $C_{\text{occ}}(R)$, $O(R)$, $MI(R)$, $\xi_{\text{info}}$, $\beta J$, $\beta D$ — validado contra casos exactos (ajedrezado, ferro, aleatorio); una partida completa se procesa en ~2 s. Primer hallazgo: la partida de ejemplo muestra un medio juego "caliente" ($\beta J < 0$, pico de $MI$) y reordenamiento hacia el final.
 - [ ] Integrar el panel "Macro" (series por jugada con cursor) al `GameNavigator`.
 - [ ] Batería de experimentos sobre la biblioteca SGF: ¿el enfriamiento $\beta J(t)$ es sistemático?, ¿el mínimo de $C_{\text{occ}}(1)$ localiza las peleas?, ¿los perfiles $MI(R)$ distinguen estilos? — y validar si las jugadas reales caen en zonas de alta entropía del mapa dinámico.
