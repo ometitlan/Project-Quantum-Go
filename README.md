@@ -390,6 +390,7 @@ Sobre esta ventana 9×9 de la misma partida, el mapa dinámico correlaciona $r \
 - **Utilidades SGF (`src/sgf_utils.py`, `src/board_utils.py`)** — carga de partidas, extracción de metadatos, conversión de movimientos a estados de tablero.
 - **Visualización (`src/go_visualization.py`)** — navegación de partidas, jugadas, libertades y mapas posicionales.
 - **Modelos de energía (`src/go_isings_models.py`)** — funciones locales tipo spin-1 y generadores de mapas Manhattan.
+- **Estado macroscópico (`src/go_macro.py`)** — observables de tablero completo por jugada: balance/ocupación, correlaciones y **información mutua** por escala, longitud de información $\xi$, y $\beta$ estructural efectivo por pseudoverosimilitud de Besag sobre el Hamiltoniano par (Blume-Capel de largo alcance). Cuaderno didáctico: `notebooks/go_macro_estado.ipynb`.
 - **Mapas y exportación (`src/go_energy_viz.py`, `src/go_export_utils.py`)** — visualizaciones comparativas, PNG, GIF y HTML.
 
 ---
@@ -464,7 +465,9 @@ dinamico = EnergyMapGenerator(QuantumDynamicMapModel(manhattan_distance=1)).gene
 - [x] Lectura de jugada hipotética ($\tilde s_i = \tau$) integrada en notebooks e interfaz: sufijo `-hipB` / `-hipW` en las pestañas del navegador (p. ej. `m1-cubic-hipB`) y en los métodos de mapa (`cubic-hipB`).
 - [x] Radio Manhattan generalizado y vectorizado: `PositionalMapModel.compute_map` calcula el tablero completo por convoluciones de anillos para cualquier $R$ (equivalencia exacta con el cálculo punto a punto, verificada; 19×19 con $R=9$ en ~3 ms, ~40× más rápido que el bucle).
 - [x] Parte cuántica reestructurada: `Hamiltonian_and_Ising_models.ipynb` documenta la derivación, demuestra el límite clásico (factorización en estados producto, verificada a precisión de máquina) e implementa el **mapa dinámico de entrelazamiento** bajo $e^{-iHt}$ (`QuantumDynamicMapModel`: entropía de von Neumann del qubit central, correlaciones conectadas; Trotter de orden 2). En el tablero de prueba, el mapa dinámico correlaciona débilmente con los mapas clásicos (r ≈ 0.13–0.20): captura información distinta.
-- [ ] Batería de experimentos iniciales sobre partidas SGF y comparación con jugadas reales — incluye validar si las jugadas reales caen en zonas de alta entropía del mapa dinámico.
+- [x] Nivel macroscópico (`src/go_macro.py` + `notebooks/go_macro_estado.ipynb`): vector macro $X_t$ por jugada — $M$, $Q$, $C_{\text{occ}}(R)$, $O(R)$, $MI(R)$, $\xi_{\text{info}}$, $\beta J$, $\beta D$ — validado contra casos exactos (ajedrezado, ferro, aleatorio); una partida completa se procesa en ~2 s. Primer hallazgo: la partida de ejemplo muestra un medio juego "caliente" ($\beta J < 0$, pico de $MI$) y reordenamiento hacia el final.
+- [ ] Integrar el panel "Macro" (series por jugada con cursor) al `GameNavigator`.
+- [ ] Batería de experimentos sobre la biblioteca SGF: ¿el enfriamiento $\beta J(t)$ es sistemático?, ¿el mínimo de $C_{\text{occ}}(1)$ localiza las peleas?, ¿los perfiles $MI(R)$ distinguen estilos? — y validar si las jugadas reales caen en zonas de alta entropía del mapa dinámico.
 - [ ] Mapa dinámico M2 (kernel de 13 qubits) y estadísticos alternativos (`entropy_max`, `conn_mean`, `z_mean`).
 
 ---
